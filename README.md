@@ -65,20 +65,22 @@ _Updated 2026-11-24_
 
 ### GPR 2010 (work in progress)
 
-- `01_parse_gpr2010.py` reads the 2010 PDFs from the GDDKiA archive (`data/raw/2010/`: Tablica 1
-  section list, Tablica 2 SDR; 1,792 sections, all with SDR). 2010 counting points have no
-  coordinates: they are located by their km on the placed 2025 sections of the same chainage system,
-  or by the locality name (OSM places, step 00b `places`) next to a road with that number — or any
-  national road, as many were renumbered since (old DK1 → DK91, DK2 → DK92 …).
-- **2010 network** (`02_build_graph.py` with `GPR_YEAR=2010`): today's BDOT network minus motorway /
-  expressway stretches that opened later (an A/S chain is kept only if a 2010 A/S section covers it
-  or a 2010 counting point lies on it, e.g. S8 Piotrków–Rawa counted as DK8 in 2010), plus regional
-  roads near the counting points as a fallback for downgraded old national alignments. OSM history
-  would be better, but the public ohsome geometry API refuses downloads.
-- Run: `set GPR_YEAR=2010` then steps 02, `01_parse_gpr2010.py`, 03, 03b, 06 →
-  `output/cartogram_2010_*.png` (1,705 / 1,792 sections, 95% of km). Placement is single-core
-  and takes ~15 min on the larger graph. Still visible: short fragments where a section's
-  location could not be extended along its 2010 road. Next: compare with 2025 (change map).
+Current method (`set GPR_YEAR=2010`):
+1. `01_parse_gpr2010.py` — Tablica 1 + 2 PDFs (`data/raw/2010/`) → `output/gpr2010_sections.csv`
+   (1,792 sections, all with SDR; counting points located by 2025 km or by locality name).
+2. `03_pdf_sections2010.py` — geometry from GDDKiA's own `Mapa_SDR2010.pdf`: every section is one
+   grey vector line (1,793), georeferenced by ICP against BDOT (median 82 m). Lines are tied to
+   sections by a Hungarian assignment on: the **SDR labels printed on the map**
+   (`pdf_labels2010.py`: glyph fragments → digits by template matching; 1,004 exact reads,
+   244 one digit off), counting-point distance, length, green band width, and continuity along
+   each road (Viterbi over touching lines). 80% of counting points land on their own line.
+3. `06_render_cartogram.py` → `output/cartogram_2010_*.png`.
+
+Known errors to fix: isolated patches where the label was not read (e.g. a too-thick piece on
+DK82 near Wisznice, DK2 east of Warsaw, a dot south of Bydgoszcz). Ideas: improve label
+grouping (only 1,390 of ~1,790 labels assembled), check each line's value against its read label
+and flag disagreements. The earlier BDOT-based 2010 attempts (`02_build_graph.py` past_network /
+pdf_network, steps 03/03b) are kept but give worse results.
 
 ## Outputs (`output/`)
 
