@@ -1,8 +1,9 @@
 """
 02_build_graph.py — turn BDOT10k national-road line features into a routable graph.
 
-  * only KAT_ISTNIE == 'eksploatowany' features are routable; roads under construction
-    are kept aside for the map but GPR traffic is never placed on them
+  * KAT_ISTNIE == 'eksploatowany' features are routable; 'w budowie' ones get oper=False and are
+    used only as a costly fallback (config.COST_NOT_OPERATIONAL): BDOT marks bits of roads
+    GPR counted in 2025 as under construction (viaducts, rebuilt carriageways)
   * nodes = line endpoints rounded to NODE_ROUND_M, then nodes closer than HEAL_M are
     merged and dangling ends are joined to the nearest node within DANGLE_M
     (the 16 voivodeship sheets of BDOT10k do not always share exact vertices)
@@ -52,7 +53,9 @@ def main():
     print(f"SKDR features: {len(skdr):,}  operational: {oper.sum():,}  other: {(~oper).sum():,}")
     if (~oper).any():
         print(skdr.loc[~oper, "KAT_ISTNIE"].value_counts().to_string())
-    routable = skdr[oper].reset_index(drop=True)
+    skdr["oper"] = oper
+    # operational first, so a parallel duplicate keeps the operational edge
+    routable = skdr.sort_values("oper", ascending=False).reset_index(drop=True)
 
     # --- endpoints → nodes ------------------------------------------------------------
     ends = np.array([[g.coords[0], g.coords[-1]] for g in routable.geometry])  # (n,2,2)
@@ -68,21 +71,23 @@ def main():
     G = nx.Graph()
     geoms, toks, nums = [], [], []
 
-    def add_edge(u, v, geom, tok):
+    def add_edge(u, v, geom, tok, op=True):
         if u == v:
             return
         length = geom.length
-        if G.has_edge(u, v) and G[u][v]["len"] <= length:
+        e = G.get_edge_data(u, v)
+        if e and ((e["oper"] and not op) or (e["oper"] == op and e["len"] <= length)):
             G[u][v]["tok"] = G[u][v]["tok"] | tok
             G[u][v]["num"] = frozenset(t.lstrip("AS") for t in G[u][v]["tok"])
             return
         eid = len(geoms)
         geoms.append(geom)
-        G.add_edge(u, v, eid=eid, len=length, tok=tok,
+        G.add_edge(u, v, eid=eid, len=length, tok=tok, oper=op,
                    num=frozenset(t.lstrip("AS") for t in tok))
 
-    for i, (geom, tok) in enumerate(zip(routable.geometry, routable["tokens"])):
-        add_edge(int(node_of_end[i, 0]), int(node_of_end[i, 1]), geom, tok)
+    for i, (geom, tok, op) in enumerate(zip(routable.geometry, routable["tokens"],
+                                            routable["oper"])):
+        add_edge(int(node_of_end[i, 0]), int(node_of_end[i, 1]), geom, tok, bool(op))
 
     # --- join dangling ends to the nearest other node -------------------------------
     nodes = np.array(list(G.nodes))
@@ -98,7 +103,7 @@ def main():
             if m == n or m in G[n] or any(m in G[k] for k in G[n]):
                 continue
             nb = next(iter(G[n]))
-            add_edge(n, m, LineString([node_xy[n], node_xy[m]]), G[n][nb]["tok"])
+            add_edge(n, m, LineString([node_xy[n], node_xy[m]]), G[n][nb]["tok"], G[n][nb]["oper"])
             joined += 1
             break
     comps = sorted((len(c) for c in nx.connected_components(G)), reverse=True)
@@ -109,8 +114,8 @@ def main():
 
     with open(config.GRAPH_PKL, "wb") as f:
         pickle.dump({"G": G, "geoms": geoms, "node_xy": node_xy,
-                     "skdr_oper": routable.drop(columns="tokens"),
-                     "skdr_other": skdr[~oper].drop(columns="tokens")}, f)
+                     "skdr_oper": skdr[oper].drop(columns=["tokens", "oper"]),
+                     "skdr_other": skdr[~oper].drop(columns=["tokens", "oper"])}, f)
     print(f"saved {config.GRAPH_PKL}")
 
 

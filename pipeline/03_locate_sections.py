@@ -47,11 +47,12 @@ EDGE_NODES = {d["eid"]: (u, v) for u, v, d in G.edges(data=True)}
 # ── routing helpers ───────────────────────────────────────────────────────────────
 
 def edge_mult(d, road, number):
+    k = 1.0 if d.get("oper", True) else config.COST_NOT_OPERATIONAL
     if road in d["tok"]:
-        return config.COST_SAME_ROAD
+        return k * config.COST_SAME_ROAD
     if number in d["num"]:
-        return config.COST_SAME_NUMBER
-    return config.COST_OTHER_ROAD
+        return k * config.COST_SAME_NUMBER
+    return k * config.COST_OTHER_ROAD
 
 
 def cost_fn(road, number):
@@ -59,12 +60,21 @@ def cost_fn(road, number):
 
 
 def snap(pt, road, number, radius=config.ANCHOR_SNAP_M):
-    """Nearest graph node on the preferred road near *pt* → (node, distance) or (None, inf)."""
+    """Nearest graph node on the preferred road near *pt* → (node, distance) or (None, inf).
+    Operational edges first; 'w budowie' edges only if nothing operational is in range
+    (they are often disconnected stubs)."""
+    node, dist = _snap(pt, road, number, radius, oper=True)
+    return (node, dist) if node is not None else _snap(pt, road, number, radius, oper=False)
+
+
+def _snap(pt, road, number, radius, oper):
     best = (None, math.inf, math.inf)
     for eid in TREE.query(pt.buffer(radius)):
         if eid not in EDGE_NODES:
             continue
         u, v = EDGE_NODES[eid]
+        if G[u][v].get("oper", True) != oper:
+            continue
         g = GEOMS[eid]
         dist = g.distance(pt)
         if dist > radius:
@@ -387,8 +397,15 @@ def main():
     pts.to_file(config.NETWORK_GPKG, layer="counting_points", driver="GPKG")
     gpd.GeoDataFrame(unmeasured, crs=2180).to_file(config.NETWORK_GPKG, layer="skdr_unmeasured",
                                                    driver="GPKG")
-    if len(D["skdr_other"]):
-        gpd.GeoDataFrame(D["skdr_other"], crs=2180).to_file(
+    other = D["skdr_other"]
+    if len(other):
+        # 'w budowie' pieces a counted section runs over were open in 2025 → not shown dashed
+        mids = gpd.GeoDataFrame(geometry=other.geometry.interpolate(0.5, normalized=True), crs=2180)
+        hit = gpd.sjoin(mids, gpd.GeoDataFrame(geometry=covered, crs=2180), predicate="within")
+        used = other.index.isin(hit.index)
+        print(f"'w budowie' BDOT pieces used by counted sections: {used.sum()} "
+              f"({other[used].length.sum() / 1000:.0f} km)")
+        gpd.GeoDataFrame(other[~used], crs=2180).to_file(
             config.NETWORK_GPKG, layer="skdr_not_operational", driver="GPKG")
     unplaced.drop(columns="geometry").to_csv(config.OUT / "qa_unplaced_sections.csv", index=False)
     print(f"saved {config.NETWORK_GPKG}")

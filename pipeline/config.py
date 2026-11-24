@@ -29,4 +29,8 @@ NODE_ROUND_M = 1.0        # endpoint rounding used to build graph topology
 COST_SAME_ROAD = 1.0      # NUMER_DROG contains this road (e.g. 'S7' for system S7j)
 COST_SAME_NUMBER = 1.3    # same number, other class (DK7 for S7 and vice versa)
 COST_OTHER_ROAD = 3.0     # other national road (covers SKDR labelling errors)
+# BDOT10k 'w budowie' pieces: routable only as a fallback. BDOT often marks bits of roads
+# that GPR counted in 2025 (viaducts, rebuilt carriageways) as under construction, which
+# would otherwise break the line; a counted GPR section is proof the road was open.
+COST_NOT_OPERATIONAL = 2.5  # multiplies the road multiplier above
 SCALE_OK = (0.75, 1.33)   # path length / chainage difference considered plausible

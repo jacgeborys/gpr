@@ -5,29 +5,29 @@
 | metric | value |
 |---|---|
 | sections in GPR | 2424 (18,364 km) |
-| sections placed | 2422 (18,353 km) |
+| sections placed | 2423 (18,357 km) |
 | with SDRR | 2402 |
-| length within ±20–25% of GPR length | 2299 sections, 17,747 km (96.7%) |
+| length within ±20–25% of GPR length | 2304 sections, 17,799 km (97.0%) |
 | median len_ratio | 1.000 |
 
-Placement: strict 2350, attached+strict 60, loose+strict 6, loose 6
+Placement: strict 2351, attached+strict 60, loose+strict 6, loose 6
 
 ## QA flags
 
 | flag | sections | meaning |
 |---|---|---|
-| scale | 189 | km between counting points disagrees with route length by >25–33% |
-| chain_break | 47 | route between counting points broken (missing link in BDOT10k); run split |
-| foreign | 30 | extension had to follow a road with a different number |
-| clipped | 15 | road ended before the section's km ran out |
-| none | 8 | extension found nothing to follow |
+| scale | 193 | km between counting points disagrees with route length by >25–33% |
+| chain_break | 29 | route between counting points broken (missing link in BDOT10k); run split |
+| foreign | 26 | extension had to follow a road with a different number |
+| clipped | 12 | road ended before the section's km ran out |
+| none | 5 | extension found nothing to follow |
 
 ## Status (from GPR remarks)
 
 | status | sections |
 |---|---|
 | measured | 2400 |
-| pending_2026 | 13 |
+| pending_2026 | 14 |
 | opened_after_count | 6 |
 | provisional | 2 |
 | not_counted | 1 |
@@ -36,11 +36,11 @@ Placement: strict 2350, attached+strict 60, loose+strict 6, loose 6
 
 | metric | value |
 |---|---|
-| nodes | 3134 |
-| links (counted / uncounted) | 3195 / 612 |
-| uncounted link km | 1,895 |
-| connected components | 13 (largest 98.7%) |
-| traffic work | 290.5 M veh-km/day |
+| nodes | 3077 |
+| links (counted / uncounted) | 3122 / 580 |
+| uncounted link km | 1,793 |
+| connected components | 10 (largest 98.8%) |
+| traffic work | 286.6 M veh-km/day |
 
 ## Busiest sections
 
@@ -57,4 +57,4 @@ Placement: strict 2350, attached+strict 60, loose+strict 6, loose 6
 | S2 | W. AL. JEROZOLIMSKIE /DW719/ - W. OPACZ /S7, S8/ | 152,703 |
 | S8f | W. MARYWILSKA - W. ŁABISZYŃSKA | 145,620 |
 
-284 sections to review → `qa_sections_to_review.csv`
+273 sections to review → `qa_sections_to_review.csv`

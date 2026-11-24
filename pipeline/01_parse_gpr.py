@@ -55,6 +55,40 @@ def status(row):
     return "measured"
 
 
+SIDE_SPLIT_M = 1000  # right/left points further apart than this are two different places
+
+
+def resolve_split_sides(s):
+    """A few sections have their right and left counting points kilometres apart (two
+    stations, or one with a wrong chainage); their mean lies off the road. Keep the side
+    whose position agrees with the chainage of the neighbouring sections' points: the
+    straight-line distance between two points cannot exceed their km difference."""
+    side = {}
+    for k in ("prawy", "lewy"):
+        p = gpd.GeoSeries(gpd.points_from_xy(s[f"lon_{k}"], s[f"lat_{k}"]), crs=4326).to_crs(2180)
+        side[k] = np.c_[p.x, p.y]
+    gap = np.hypot(*(side["prawy"] - side["lewy"]).T)
+    split = gap > SIDE_SPLIT_M
+    p0 = s["pik_pocz"].map(lambda v: to_float(str(v).split("\n")[0]))
+    s["side_used"] = np.where(s["lat"].notna(), "both", None)
+    for i in np.flatnonzero(split):
+        same = s.index[(s.system == s.system.iloc[i]) & ~split & s.x.notna()]
+        nb = sorted(same, key=lambda j: abs(p0.loc[j] - p0.iloc[i]))[:2]
+        best = None
+        for k in ("prawy", "lewy"):
+            xy, km = side[k][i], s[f"pik_{k}"].iloc[i]
+            bad = sum(max(0.0, np.hypot(xy[0] - s.x.loc[j], xy[1] - s.y.loc[j])
+                          - abs(km - s.pk.loc[j]) * 1000 * 1.05 - 300) for j in nb)
+            if best is None or bad < best[0]:
+                best = (bad, k, xy, km)
+        _, k, xy, km = best
+        r = s.index[i]
+        s.loc[r, ["x", "y", "pk", "side_used"]] = [xy[0], xy[1], km, k]
+        s.loc[r, ["lat", "lon"]] = [s.loc[r, f"lat_{k}"], s.loc[r, f"lon_{k}"]]
+    print(f"sections with right/left counting points > {SIDE_SPLIT_M} m apart: {split.sum()} "
+          f"(one side kept)")
+
+
 def main():
     config.OUT.mkdir(exist_ok=True)
     t1 = pd.read_excel(config.GPR_TAB01, header=None, skiprows=11, names=TAB01_COLS)
@@ -86,6 +120,7 @@ def main():
     pts = gpd.GeoSeries(gpd.points_from_xy(s["lon"], s["lat"]), crs=4326).to_crs(2180)
     s["x"] = np.where(s["lat"].notna(), pts.x, np.nan)
     s["y"] = np.where(s["lat"].notna(), pts.y, np.nan)
+    resolve_split_sides(s)
 
     # explode into chainage-system pieces
     pieces = []

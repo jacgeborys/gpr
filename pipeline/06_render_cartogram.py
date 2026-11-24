@@ -20,13 +20,15 @@ import config  # noqa: E402
 RAMP_LIGHT = ["#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 RAMP_DARK = ["#184f95", "#1c5cab", "#2a78d6", "#5598e7", "#86b6ef", "#cde2fb"]
 THEMES = {
-    "light": dict(bg="#fcfcfb", land="#f3f2ef", border="#d6d5cf", ctx="#c9c8c1",
+    "light": dict(bg="#fcfcfb", land="#f3f2ef", border="#d6d5cf", ctx="#b5b4ac",
                   text="#0b0b0b", text2="#52514e", ramp=RAMP_LIGHT),
-    "dark": dict(bg="#1a1a19", land="#232322", border="#3a3a37", ctx="#4a4a46",
+    "dark": dict(bg="#1a1a19", land="#232322", border="#3a3a37", ctx="#5c5c57",
                  text="#f0efec", text2="#c3c2b7", ramp=RAMP_DARK),
 }
 SDRR_MAX = 120_000           # width/colour saturate here (a handful of urban A4/S8 links exceed it)
 W_MIN, W_MAX = 0.35, 9.0     # line width in points
+FIG_W = 12.0                 # inches; height follows the country's aspect ratio
+PAD_M, PAD_TOP_M = 8_000, 80_000  # frame margins around the country (m)
 CITIES = {"Warszawa": (21.01, 52.23), "Kraków": (19.94, 50.06), "Łódź": (19.46, 51.76),
           "Wrocław": (17.03, 51.11), "Poznań": (16.93, 52.41), "Gdańsk": (18.65, 54.35),
           "Szczecin": (14.55, 53.43), "Katowice": (19.02, 50.26), "Lublin": (22.57, 51.25),
@@ -47,14 +49,19 @@ def render(theme, sec, ctx, notop, voiv, country):
     t = THEMES[theme]
     cmap = LinearSegmentedColormap.from_list("seq", t["ramp"])
     norm = Normalize(0, SDRR_MAX)
-    fig, ax = plt.subplots(figsize=(13, 11.8), dpi=200)
+    # frame = country bounds + small margins (extra on top for the title over the Baltic);
+    # the axes fill the whole figure, so Poland fills the frame
+    minx, miny, maxx, maxy = country.total_bounds
+    x0, x1, y0, y1 = minx - PAD_M, maxx + PAD_M, miny - PAD_M, maxy + PAD_TOP_M
+    fig = plt.figure(figsize=(FIG_W, FIG_W * (y1 - y0) / (x1 - x0)), dpi=200)
+    ax = fig.add_axes([0, 0, 1, 1])
     fig.patch.set_facecolor(t["bg"])
     ax.set_facecolor(t["bg"])
     country.plot(ax=ax, color=t["land"], edgecolor="none")
     # internal admin borders omitted: granice_admin pieces do not share edges cleanly
     country.boundary.plot(ax=ax, color=t["border"], linewidth=0.9)
     ax.add_collection(LineCollection([s for g in ctx.geometry for s in segs(g)],
-                                     colors=t["ctx"], linewidths=0.35, zorder=2))
+                                     colors=t["ctx"], linewidths=0.9, capstyle="round", zorder=2))
     if notop is not None and len(notop):
         ax.add_collection(LineCollection([s for g in notop.geometry for s in segs(g)],
                                          colors=t["text2"], linewidths=0.6, linestyles=(0, (2, 2)),
@@ -82,34 +89,33 @@ def render(theme, sec, ctx, notop, voiv, country):
                     path_effects=[matplotlib.patheffects.withStroke(linewidth=2.5,
                                                                     foreground=t["bg"])])
 
-    minx, miny, maxx, maxy = country.total_bounds
-    ax.set_xlim(minx - 15_000, maxx + 15_000)
-    ax.set_ylim(miny - 15_000, maxy + 15_000)
+    ax.set_xlim(x0, x1)
+    ax.set_ylim(y0, y1)
     ax.set_aspect("equal")
     ax.axis("off")
 
-    fig.text(0.06, 0.955, f"Ruch na drogach krajowych {config.YEAR}", fontsize=20,
-             fontweight="bold", color=t["text"])
-    fig.text(0.06, 0.93, "Średni dobowy ruch roczny (SDRR), pojazdy/dobę · Generalny Pomiar Ruchu "
-             f"GDDKiA {config.YEAR}", fontsize=11, color=t["text2"])
+    fig.text(0.025, 0.965, f"Ruch na drogach krajowych {config.YEAR}", fontsize=20,
+             fontweight="bold", color=t["text"], va="top")
+    fig.text(0.025, 0.925, "Średni dobowy ruch roczny (SDRR), pojazdy/dobę · Generalny Pomiar Ruchu "
+             f"GDDKiA {config.YEAR}", fontsize=11, color=t["text2"], va="top")
 
     # width + colour legend (shared encoding)
     handles = [Line2D([], [], color=cmap(norm(v)), lw=width(v), solid_capstyle="round",
                       label=f"{v:,.0f}".replace(",", " ")) for v in (5_000, 20_000, 50_000, 100_000)]
     handles += [Line2D([], [], color=t["text2"], lw=0.8, ls=(0, (1, 1.5)),
                        label="brak wyniku (oddane XII 2025 / pomiar 2026)"),
-                Line2D([], [], color=t["ctx"], lw=0.8, label="pozostałe drogi krajowe (bez pomiaru)")]
+                Line2D([], [], color=t["ctx"], lw=1.2, label="drogi krajowe bez pomiaru GPR (głównie w miastach)")]
     if notop is not None and len(notop):
         handles.append(Line2D([], [], color=t["text2"], lw=0.8, ls=(0, (2, 2)),
                               label="w budowie (BDOT10k)"))
-    leg = ax.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.0, 0.02), frameon=False, fontsize=9,
+    leg = ax.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.01, 0.035), frameon=False, fontsize=9,
                     labelcolor=t["text2"], title="SDRR [poj./dobę]", title_fontsize=10,
                     handlelength=3.2, borderaxespad=0.2)
     leg.get_title().set_color(t["text"])
-    fig.text(0.94, 0.03, "Dane: GDDKiA GPR 2025, BDOT10k (GUGiK) · geometria odcinków: "
-             "kilometraż GPR na sieci BDOT10k", fontsize=7.5, color=t["text2"], ha="right")
+    fig.text(0.025, 0.015, "Dane: GDDKiA GPR 2025, BDOT10k (GUGiK) · geometria odcinków: "
+             "kilometraż GPR na sieci BDOT10k", fontsize=7.5, color=t["text2"], ha="left")
     out = config.OUT / f"cartogram_{config.YEAR}_{theme}.png"
-    fig.savefig(out, facecolor=t["bg"], bbox_inches="tight", pad_inches=0.3)
+    fig.savefig(out, facecolor=t["bg"])
     plt.close(fig)
     print(f"saved {out}")
 

@@ -8,25 +8,29 @@ a **node/link network** with counts attached, ready to seed a national traffic m
 
 ## Status
 
-_Updated 2026-11-24_
+_Updated 2026-11-24 (gap fixes, tighter map frame)_
 
 - Pipeline rebuilt **section-first**: every GPR section is placed on the BDOT10k road graph
   by its own chainage (km). The old approach (`legacy/`) cut the network first and gave
   each piece the nearest counting point's value. In that version **369 sections (≈2,100 km)
   never showed their own value**: they took their neighbour's.
-- **2,422 / 2,424 sections placed (18,353 km)**; the 2 missing are roads BDOT10k still marks as
-  under construction (S1h Brzeszcze–Stara Wieś opened Dec 2025; S74n Opatów, 2026 count).
-  97% of km have a geometry length within
-  ±20–25% of the official GPR section length; median ratio 0.999.
+- **2,423 / 2,424 sections placed (18,357 km)**; the one missing is S1h Brzeszcze–Stara Wieś
+  (opened Dec 2025, no count, still under construction in BDOT10k). 97% of km have a geometry
+  length within ±20–25% of the official GPR length; median ratio 1.000.
 - Roads that were not in operation in 2025:
-  - BDOT10k roads with `KAT_ISTNIE ≠ eksploatowany` (under construction) are never used
-    for placement and are drawn dashed.
+  - BDOT10k roads with `KAT_ISTNIE ≠ eksploatowany` are drawn dashed and routed over only as a
+    costly fallback (×2.5). BDOT lags reality: bits of S61, S11, S6, S19, S3, S7… that GPR counted
+    in 2025 are still "w budowie" there and used to break those roads into pieces (visible gaps).
+    About 140 km of such pieces now carry a counted section and are not drawn dashed.
   - GPR sections without counts carry `status`: `opened_after_count` (opened Dec 2025),
     `pending_2026` (supplementary count in 2026), `not_counted`.
-  - National roads with no GPR section (stretches managed by cities, old alignments)
-    appear as grey context and as `counted = false` links in the model network.
-- Model network: 3,134 nodes, 3,807 links (3,195 counted, 612 uncounted ≈1,900 km),
-  98.7% of nodes in one connected component.
+  - National roads with no GPR section (mostly stretches managed by cities with county rights,
+    plus old alignments) appear as grey lines and as `counted = false` links in the model network.
+- 23 sections have their right/left counting points more than 1 km apart (two stations, or a
+  wrong chainage). Their mean fell off the road and broke placement (e.g. A2 Łódź–Łowicz);
+  step 01 now keeps the side consistent with the neighbouring sections (`side_used`).
+- Model network: 3,077 nodes, 3,702 links (3,122 counted, 580 uncounted ≈1,800 km),
+  98.8% of nodes in one connected component.
 - BDOT10k re-extracted 2026-11-24 with all attributes (92,636 features, 739 under construction).
   Mazowieckie ships its layer in two parts (`*_SKDR_L.shp` + `*_SKDR_L_1.shp`); step 00 reads both.
 - See `output/qa_report.md` for current metrics and `output/qa_sections_to_review.csv`
@@ -74,7 +78,8 @@ For each system:
 1. Split into **runs** of contiguous km (gaps > 1 km are stretches renumbered to other roads).
 2. **Anchors** are counting points: their km (`pik_prawy`/`pik_lewy`) and position are both known.
 3. Route between consecutive anchors on the SKDR graph, preferring edges with the same road
-   number (cost ×1.0; same number but other class ×1.3; other road ×3). km → metres is
+   number (cost ×1.0; same number but other class ×1.3; other road ×3; any "w budowie" edge
+   ×2.5 on top). Anchors snap to operational edges first. km → metres is
    interpolated piecewise-linearly between anchors, which absorbs GDDKiA-vs-BDOT length
    differences locally.
 4. If a route is implausible (more than 2× the km difference, typically a through-town
