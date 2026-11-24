@@ -1,0 +1,13 @@
+# environment / IDE
+.venv/
+.idea/
+.claude/settings.local.json
+__pycache__/
+*.pyc
+
+# large or regenerable data
+data/bdot/
+output/skdr_graph.pkl
+legacy/output/
+legacy/gpr2025.gpkg
+*.bak
