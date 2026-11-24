@@ -18,9 +18,9 @@ from matplotlib.lines import Line2D  # noqa: E402
 import config  # noqa: E402
 
 THEMES = {
-    "light": dict(bg="#fcfcfb", land="#f3f2ef", city="#e6e4de", border="#d6d5cf", ctx=config.NO_COUNT_LIGHT,
+    "light": dict(bg="#fcfcfb", land="#f3f2ef", city="#dbd8d0", border="#d6d5cf", ctx=config.NO_COUNT_LIGHT,
                   text="#0b0b0b", text2="#52514e", ramp=config.SDRR_COLORS_LIGHT),
-    "dark": dict(bg="#1a1a19", land="#232322", city="#2e2e2b", border="#3a3a37", ctx=config.NO_COUNT_DARK,
+    "dark": dict(bg="#1a1a19", land="#232322", city="#3a3a36", border="#3a3a37", ctx=config.NO_COUNT_DARK,
                  text="#f0efec", text2="#c3c2b7", ramp=config.SDRR_COLORS_DARK),
 }
 FONT_FILE = "C:/Windows/Fonts/bahnschrift.ttf"
