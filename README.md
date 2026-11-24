@@ -14,7 +14,9 @@ _Updated 2026-11-24_
   by its own chainage (km). The old approach (`legacy/`) cut the network first and gave
   each piece the nearest counting point's value. In that version **369 sections (≈2,100 km)
   never showed their own value**: they took their neighbour's.
-- All **2,424 / 2,424 sections placed (18,364 km)**. 97% of km have a geometry length within
+- **2,422 / 2,424 sections placed (18,353 km)**; the 2 missing are roads BDOT10k still marks as
+  under construction (S1h Brzeszcze–Stara Wieś opened Dec 2025; S74n Opatów, 2026 count).
+  97% of km have a geometry length within
   ±20–25% of the official GPR section length; median ratio 0.999.
 - Roads that were not in operation in 2025:
   - BDOT10k roads with `KAT_ISTNIE ≠ eksploatowany` (under construction) are never used
@@ -23,7 +25,10 @@ _Updated 2026-11-24_
     `pending_2026` (supplementary count in 2026), `not_counted`.
   - National roads with no GPR section (stretches managed by cities, old alignments)
     appear as grey context and as `counted = false` links in the model network.
-- Model network: ≈3,100 nodes, ≈3,750 links, 98.5% in one connected component.
+- Model network: 3,134 nodes, 3,807 links (3,195 counted, 612 uncounted ≈1,900 km),
+  98.7% of nodes in one connected component.
+- BDOT10k re-extracted 2026-11-24 with all attributes (92,636 features, 739 under construction).
+  Mazowieckie ships its layer in two parts (`*_SKDR_L.shp` + `*_SKDR_L_1.shp`); step 00 reads both.
 - See `output/qa_report.md` for current metrics and `output/qa_sections_to_review.csv`
   for flagged sections.
 
