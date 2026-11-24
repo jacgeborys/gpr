@@ -30,9 +30,12 @@ import config
 GREY = ((0.5, 0.5, 0.5), 2.87)
 GREEN = (0.645, 0.992, 0.629)
 MAIN_X = 1150            # page x left of this = the three insets
+UNASSIGNED = 40.0        # cost of leaving a section off the map (≈ a line 25 km away)
+LABEL_FAR_KM = 25       # a label this far from a section's counting point is not its label
 TOUCH_M = 600            # two map lines whose ends are this close are consecutive
-LABEL_CLUSTERS = {0: "7", 2: "9", 3: "5", 4: "0", 6: "6", 8: "8", 9: "2", 11: "3", 12: "2", 14: "2"}
-LABEL_ONEFOUR = 10       # k-means cluster holding both 1 and 4 (split by ink)
+# page boxes (x0, x1, y0, y1) right of MAIN_X that are not the main map: the edge of the
+# Górnośląski inset, the legend (with an example label '8511') and the credits box
+NOT_MAIN = [(MAIN_X, 1262, 1755, 2551), (1300, 1500, 2000, 2551), (1700, 2050, 2220, 2551)]
 CACHE = config.OUT / "pdf2010_cache.pkl"   # parsed PDF (lines, band, glyphs, affine): ~4 min to rebuild
 
 
@@ -69,6 +72,11 @@ def page_lines():
             elif key[0] == GREEN:
                 green.append((key[1], o["pts"]))
     return out, green, size, glyph
+
+
+def off_main(a):
+    x, y = a.mean(0)
+    return any(x0 <= x <= x1 and y0 <= y <= y1 for x0, x1, y0, y1 in NOT_MAIN)
 
 
 def load_pdf():
@@ -139,46 +147,197 @@ def fit_affine(lines):
     return A
 
 
-def label_bonus(s, raw, glyph, cost, exact_bonus=60.0, near_bonus=20.0, max_pt=14.0):
-    """The SDR value printed on each band: a line whose label reads as a section's SDR (exact
-    match with the 2010 table) is that section's line; a near-miss reading (one digit off)
-    gives a smaller bonus."""
+def read_map_labels(s, raw, glyph, A, max_pt=14.0):
+    """The SDR values printed on the map (pdf_labels2010), each tied to the nearest grey line.
+    Labels that do not read as a table value are decoded against the values of sections whose
+    counting point is near the label. → DataFrame px, py, label, exact, how, line, x, y."""
     import pdf_labels2010 as pl
+    from shapely.strtree import STRtree
     vals = s.sdrr_total.dropna().astype(int).astype(str)
-    reads = pl.read_labels(glyph, set(vals), LABEL_CLUSTERS, LABEL_ONEFOUR)
-    from shapely.geometry import LineString as _LS, Point as _P
-    from shapely.strtree import STRtree as _T
-    rl = [_LS(g) for g in raw]
-    tr = _T(rl)
-    by_val = {}
-    for i, v in zip(s.index, s.sdrr_total):
-        if v == v:
-            by_val.setdefault(str(int(v)), []).append(i)
-    pos = {k: n for n, k in enumerate(s.index)}
-    n_ex = n_near = 0
-    out = cost.copy()
-    rec = []   # (page x, y, text, exact, line or -1)
-    for x, y, txt, exact in reads:
-        q = _P(x, y)
+    Ai = np.linalg.inv(np.vstack([A, [0, 0, 1]]))[:2]
+    has = s.x.notna() & s.sdrr_total.notna()
+    pxy = np.c_[s.x[has], s.y[has], np.ones(has.sum())] @ Ai.T
+    pv = vals[has].values
+    ptree = cKDTree(pxy)
+    nopt = list(vals[~s.x.notna() & s.sdrr_total.notna()])
+
+    def cands(x, y):
+        return [pv[k] for k in ptree.query_ball_point((x, y), pl.NEAR_PT)] + nopt
+
+    reads = pl.read_labels(glyph, set(vals), cands)
+    rl = [LineString(g) for g in raw]
+    tr = STRtree(rl)
+    lab = pd.DataFrame(reads, columns=["px", "py", "label", "exact", "how"])
+    lab["line"] = -1
+    for k, (x, y) in enumerate(zip(lab.px, lab.py)):
+        q = Point(x, y)
         hits = [j for j in tr.query(q.buffer(max_pt)) if rl[j].distance(q) <= max_pt]
-        rec.append([x, y, txt, exact, -1])
-        if not hits:
+        if hits:
+            lab.loc[k, "line"] = min(hits, key=lambda j: rl[j].distance(q))
+    xy = np.c_[lab.px, lab.py, np.ones(len(lab))] @ A.T
+    lab["x"], lab["y"] = xy[:, 0], xy[:, 1]
+    print(f"map labels read: {len(lab)} {lab.how.value_counts().to_dict()}; "
+          f"on a line: {(lab.line >= 0).sum()}")
+    return lab
+
+
+def fix_points(s, lab, far_km=LABEL_FAR_KM):
+    """Counting points vs the map's own labels. A section whose value is unique in the table and
+    read on the map: with no point, or a point located by locality name (a namesake village
+    can be hundreds of km away) far from every reading of its value, the point moves to the
+    label. Points from the 2025 chainage are trusted: a far reading is a misread."""
+    s = s.copy()
+    ex = lab[lab.exact & (lab.line >= 0)]
+    cnt = s.sdrr_total.dropna().astype(int).astype(str).value_counts()
+    moved = added = 0
+    for i, r in s.iterrows():
+        if r.sdrr_total != r.sdrr_total:
             continue
-        j = min(hits, key=lambda j: rl[j].distance(q))
-        rec[-1][4] = j
-        if exact:
-            for i in by_val.get(txt, []):
-                out[pos[i], j] -= exact_bonus
-            n_ex += 1
+        v = str(int(r.sdrr_total))
+        if cnt[v] > 1:
+            continue
+        rd = ex[ex.label == v]
+        if rd.empty:
+            continue
+        if r.x == r.x:
+            d = np.hypot(rd.x - r.x, rd.y - r.y) / 1000
+            if d.min() <= far_km or r.located_by == "chainage_2025":
+                continue
+        if np.ptp(rd.x) > 10_000 or np.ptp(rd.y) > 10_000:
+            continue   # several readings far apart: ambiguous
+        moved += r.x == r.x
+        added += r.x != r.x
+        s.loc[i, ["x", "y", "located_by"]] = rd.x.mean(), rd.y.mean(), "map_label"
+    print(f"counting points from map labels: {moved} locality points moved, {added} added")
+    return s
+
+
+def neighbour_points(s, far_km=60.0):
+    """Sections next to each other in km (same chainage system) are next to each other on the
+    map. A section with no point gets the mean of its neighbours' points; a locality point far
+    (> far_km) from neighbours that agree with each other is a namesake village and is replaced
+    the same way. Only trusted neighbours count (2025 chainage, map label)."""
+    s = s.copy()
+    order = s.sort_values(["system", "pik_pocz"]).index
+    prev_, next_ = {}, {}
+    for a_, b_ in zip(order[:-1], order[1:]):
+        if s.system[a_] == s.system[b_] and abs(s.pik_pocz[b_] - s.pik_konc[a_]) <= 1.0:
+            next_[a_], prev_[b_] = b_, a_
+    trusted = s.located_by.isin(["chainage_2025", "map_label"])
+    n_fix = n_add = 0
+    for _ in range(3):   # chains of sections without points fill in from both ends
+        for i in s.index:
+            nb = [k for k in (prev_.get(i), next_.get(i)) if k is not None and s.x[k] == s.x[k]
+                  and (trusted[k] or s.located_by[k] == "neighbours")]
+            if not nb:
+                continue
+            xy = np.array([[s.x[k], s.y[k]] for k in nb])
+            if s.x[i] != s.x[i]:
+                s.loc[i, ["x", "y", "located_by"]] = *xy.mean(0), "neighbours"
+                n_add += 1
+            elif s.located_by[i] == "locality" and len(nb) == 2 and                     np.hypot(*(xy[0] - xy[1])) < far_km * 1000 and                     np.hypot(*(xy.mean(0) - [s.x[i], s.y[i]])) > far_km * 1000:
+                s.loc[i, ["x", "y", "located_by"]] = *xy.mean(0), "neighbours"
+                n_fix += 1
+    print(f"counting points from km-neighbours: {n_add} added, {n_fix} far locality points replaced; "
+          f"still without a point: {s.x.isna().sum()}")
+    return s
+
+
+def label_bonus(s, lab, cost, exact_bonus=120.0, near_bonus=20.0, far_km=LABEL_FAR_KM):
+    """A line whose label reads as a section's SDR (exact match with the 2010 table) is that
+    section's line, if the label is near the section's counting point (or it has none); a
+    near-miss reading (one digit off) gives a smaller bonus."""
+    by_val = {}
+    for n_, v in enumerate(s.sdrr_total):
+        if v == v:
+            by_val.setdefault(str(int(v)), []).append(n_)
+    xs, ys = s.x.values, s.y.values
+    out = cost.copy()
+    n_ex = n_near = n_far = 0
+    for r in lab[lab.line >= 0].itertuples():
+        if r.exact:
+            hit = False
+            for i in by_val.get(r.label, []):
+                if xs[i] == xs[i] and np.hypot(xs[i] - r.x, ys[i] - r.y) > far_km * 1000:
+                    continue
+                out[i, r.line] -= exact_bonus
+                hit = True
+            n_ex += hit
+            n_far += not hit
         else:
-            near = [v for v in by_val if len(v) == len(txt) and
-                    sum(a != b for a, b in zip(v, txt)) == 1]
+            near = [v for v in by_val if len(v) == len(r.label) and
+                    sum(a != b for a, b in zip(v, r.label)) == 1]
             for v in near:
                 for i in by_val[v]:
-                    out[pos[i], j] -= near_bonus
+                    out[i, r.line] -= near_bonus
             n_near += bool(near)
-    print(f"map labels read: {len(reads)}; exact SDR on a line: {n_ex}, one digit off: {n_near}")
-    return out, rec
+    print(f"label bonus: exact SDR on a line {n_ex} (far from the counting point, ignored: "
+          f"{n_far}), one digit off {n_near}")
+    return out
+
+
+def touching(lines, touch_m=TOUCH_M):
+    ends = np.array([c for ln in lines for c in (ln.coords[0][:2], ln.coords[-1][:2])])
+    touch = [set() for _ in lines]
+    for a_, b_ in cKDTree(ends).query_pairs(touch_m):
+        i, j = a_ // 2, b_ // 2
+        if i != j:
+            touch[i].add(j)
+            touch[j].add(i)
+    return touch
+
+
+def km_neighbours(s):
+    order = s.sort_values(["system", "pik_pocz"]).index
+    nb = {i: [] for i in s.index}
+    for a_, b_ in zip(order[:-1], order[1:]):
+        if s.system[a_] == s.system[b_] and abs(s.pik_pocz[b_] - s.pik_konc[a_]) <= 1.0:
+            nb[a_].append(b_)
+            nb[b_].append(a_)
+    return nb
+
+
+def repair(s, lines, L, lab, max_len_ratio=2.5):
+    """Sections left off the map whose km-neighbour is on the map: take an empty line touching
+    the neighbour's line, if its length fits and no label on it reads as another value. A label
+    within one edit of the section's value (a digit missed) makes the choice. Repeats, so a
+    chain of such sections fills in from its placed end."""
+    import importlib
+    edits = importlib.import_module("08_suspects2010").edits
+    touch = touching(lines)
+    nb = km_neighbours(s)
+    reads = lab[lab.line >= 0].groupby("line").agg(list)
+    n_fix = 0
+    changed = True
+    while changed:
+        changed = False
+        used = set(s.line[s.line >= 0])
+        for i in s.index[(s.line < 0) & s.sdrr_total.notna()]:
+            v = str(int(s.sdrr_total[i]))
+            placed = [s.line[k] for k in nb[i] if s.line[k] >= 0]
+            best = None
+            for j in set().union(*[touch[l] for l in placed]) if placed else ():
+                if j in used:
+                    continue
+                r = abs(np.log(max(L[j], 0.1) / s.dlugosc_km[i]))
+                if r > np.log(max_len_ratio):
+                    continue
+                score = r - 0.5 * sum(j in touch[l] for l in placed)
+                if j in reads.index:
+                    rd = reads.loc[j]
+                    if any(edits(t, v) <= 1 for t in rd.label):
+                        score -= 5
+                    elif any(e and t != v for t, e in zip(rd.label, rd.exact)):
+                        continue
+                if best is None or score < best[0]:
+                    best = (score, j)
+            if best:
+                s.loc[i, "line"] = best[1]
+                used.add(best[1])
+                n_fix += 1
+                changed = True
+    print(f"repair: {n_fix} sections placed on empty lines next to their km-neighbours")
+    return s
 
 
 def chain_bonus(s, lines, cost, touch_m=TOUCH_M, k_cand=40, jump=8.0, bonus=10.0):
@@ -244,7 +403,13 @@ def chain_bonus(s, lines, cost, touch_m=TOUCH_M, k_cand=40, jump=8.0, bonus=10.0
 
 def main():
     d = load_pdf()
-    raw, glyph, A, bw = d["raw"], d["glyph"], d["A"], d["bw"]
+    keep = [not off_main(a) for a in d["raw"]]
+    raw = [a for a, k in zip(d["raw"], keep) if k]
+    bw = d["bw"][np.array(keep)]
+    glyph = [a for a in d["glyph"] if not off_main(a)]
+    A = d["A"]
+    print(f"left out (inset edge, legend): {keep.count(False)} lines, "
+          f"{len(d['glyph']) - len(glyph)} glyph pieces")
     lines = [LineString(np.c_[g, np.ones(len(g))] @ A.T) for g in raw]
     L = np.array([ln.length / 1000 for ln in lines])
     bw = np.where(np.isnan(bw), np.nanmedian(bw), bw)
@@ -252,6 +417,9 @@ def main():
 
     s = pd.read_csv(config.SECTIONS_CSV)
     s["dlugosc_km"] = s["dlugosc_km"].fillna(s["pik_konc"] - s["pik_pocz"]).fillna(1.0).clip(lower=0.1)
+    lab = read_map_labels(s, raw, glyph, A)
+    s = fix_points(s, lab)
+    s = neighbour_points(s)
     n, m = len(s), len(lines)
     # band width → SDR by quantile matching (the 1,793 lines are the 1,792 sections)
     sdr_sorted = np.sort(s.sdrr_total.fillna(s.sdrr_total.median()).values)
@@ -274,9 +442,17 @@ def main():
     cost = (1.5 * dist + 3 * np.abs(np.log(np.maximum(L, 0.1)[None, :] / want))
             + 2 * np.abs(np.log(sdr_est[None, :] / sdr)))
     cost = np.nan_to_num(cost, nan=1e3, posinf=1e3)
-    cost, reads = label_bonus(s, raw, glyph, cost)
+    cost = label_bonus(s, lab, cost)
     cost = chain_bonus(s, lines, cost)
-    rows, cols = linear_sum_assignment(cost)
+    # a section may stay off the map (cost UNASSIGNED) rather than fill a far line, and a
+    # line may stay empty: drawn as a road without a count
+    rows, cols = linear_sum_assignment(np.c_[cost, np.full((n, n), UNASSIGNED)])
+    ok = cols < m
+    off = s.loc[rows[~ok], ["numer_odcinka", "nr_drogi", "nazwa_odcinka", "located_by"]]
+    rows, cols = rows[ok], cols[ok]
+    print(f"left off the map: {len(off)} sections")
+    if len(off):
+        print(off.to_string())
     s["line"] = -1
     s.loc[rows, "line"] = cols
     s["match_cost"] = np.nan
@@ -285,6 +461,7 @@ def main():
     s.loc[rows, "sdr_band"] = sdr_est[cols].round()
     r = np.corrcoef(np.log(s.sdrr_total[rows]), np.log(sdr_est[cols]))[0, 1]
     print(f"assigned {len(rows)} sections; log-SDR vs band-width correlation {r:.2f}")
+    s = repair(s, lines, L, lab)
     s = s.sort_index()
     matched = s[s.line >= 0].copy()
     matched["geometry"] = [lines[j] for j in matched.line]
@@ -299,15 +476,17 @@ def main():
     keep = [c for c in ["numer_odcinka", "nr_drogi", "system", "road", "road_class",
                         "nazwa_odcinka", "pik_pocz", "pik_konc", "dlugosc_km", "status",
                         "sdrr_total", "sdrr_heavy", "heavy_share", "geom_km", "len_ratio",
-                        "placement", "qa_flags", "match_cost", "sdr_band", "line", "geometry"] if c in g.columns]
+                        "placement", "qa_flags", "match_cost", "sdr_band", "line", "located_by",
+                        "geometry"] if c in g.columns]
     config.NETWORK_GPKG.unlink(missing_ok=True)
     g[keep].to_file(config.NETWORK_GPKG, layer="sections", driver="GPKG")
-    gpd.GeoDataFrame(geometry=[], crs=2180).to_file(config.NETWORK_GPKG, layer="skdr_unmeasured",
-                                                    driver="GPKG")
+    empty = sorted(set(range(m)) - set(s.line[s.line >= 0]))
+    gpd.GeoDataFrame({"line": empty}, geometry=[lines[j] for j in empty], crs=2180).to_file(
+        config.NETWORK_GPKG, layer="skdr_unmeasured", driver="GPKG")
+    print(f"map lines with no section (drawn as roads without a count): {len(empty)}")
     # debug layers: every map line with its label read(s) and the section it got
-    lab = pd.DataFrame(reads, columns=["px", "py", "label", "exact", "line"])
-    xy = np.c_[lab.px, lab.py, np.ones(len(lab))] @ A.T
-    gpd.GeoDataFrame(lab, geometry=gpd.points_from_xy(xy[:, 0], xy[:, 1]), crs=2180).to_file(
+    gpd.GeoDataFrame(lab.drop(columns=["x", "y"]), geometry=gpd.points_from_xy(lab.x, lab.y),
+                     crs=2180).to_file(
         config.NETWORK_GPKG, layer="map_labels", driver="GPKG")
     per = lab[lab.line >= 0].groupby("line").agg(
         labels=("label", lambda v: ";".join(v)),
