@@ -19,12 +19,15 @@ import networkx as nx
 import numpy as np
 from scipy.spatial import cKDTree
 from shapely.geometry import LineString
+from shapely.ops import substring
 
 import config
 from common import skdr_tokens
 
 HEAL_M = 3.0
 DANGLE_M = 20.0
+DANGLE_ROAD_M = 200.0
+MAX_EDGE_M = 250.0
 
 
 class UnionFind:
@@ -85,9 +88,26 @@ def main():
         G.add_edge(u, v, eid=eid, len=length, tok=tok, oper=op,
                    num=frozenset(t.lstrip("AS") for t in tok))
 
+    # long features are split into ≤ MAX_EDGE_M edges: anchors snap to graph nodes, so a
+    # 7 km feature (whole new expressways come as one) would move an anchor by kilometres
+    next_id = len(uniq)
     for i, (geom, tok, op) in enumerate(zip(routable.geometry, routable["tokens"],
                                             routable["oper"])):
-        add_edge(int(node_of_end[i, 0]), int(node_of_end[i, 1]), geom, tok, bool(op))
+        u, v = int(node_of_end[i, 0]), int(node_of_end[i, 1])
+        k = int(np.ceil(geom.length / MAX_EDGE_M))
+        if k <= 1 or u == v:
+            add_edge(u, v, geom, tok, bool(op))
+            continue
+        cuts = np.linspace(0, geom.length, k + 1)
+        chain = [u]
+        for d in cuts[1:-1]:
+            p = geom.interpolate(d)
+            node_xy[next_id] = (p.x, p.y)
+            chain.append(next_id)
+            next_id += 1
+        chain.append(v)
+        for a, b, d0, d1 in zip(chain[:-1], chain[1:], cuts[:-1], cuts[1:]):
+            add_edge(a, b, substring(geom, d0, d1), tok, bool(op))
 
     # --- join dangling ends to the nearest other node -------------------------------
     nodes = np.array(list(G.nodes))
@@ -106,9 +126,34 @@ def main():
             add_edge(n, m, LineString([node_xy[n], node_xy[m]]), G[n][nb]["tok"], G[n][nb]["oper"])
             joined += 1
             break
+    # --- second pass: longer holes, only along the same road -------------------------
+    # BDOT10k has occasional 50–200 m holes in a road (e.g. S7 near Elbląg). A dead end
+    # is joined to a node of the same road number within DANGLE_ROAD_M, unless the two
+    # are already connected by a short path (then it is just a ramp or carriageway end).
+    nodes = np.array(list(G.nodes))
+    tree = cKDTree(np.array([node_xy[n] for n in nodes]))
+    healed = 0
+    for n in [n for n in G.nodes if G.degree(n) == 1]:
+        nb = next(iter(G[n]))
+        tok = G[n][nb]["tok"]
+        if not tok:
+            continue
+        dists, idx = tree.query(node_xy[n], k=12, distance_upper_bound=DANGLE_ROAD_M)
+        near = nx.single_source_dijkstra_path_length(G, n, cutoff=6 * DANGLE_ROAD_M,
+                                                     weight="len")
+        for d, j in zip(dists, idx):
+            if not np.isfinite(d) or j >= len(nodes) or d <= DANGLE_M:
+                continue
+            m = int(nodes[j])
+            if m in near or not any(G[m][k]["tok"] & tok for k in G[m]):
+                continue
+            add_edge(n, m, LineString([node_xy[n], node_xy[m]]), tok, G[n][nb]["oper"])
+            healed += 1
+            break
     comps = sorted((len(c) for c in nx.connected_components(G)), reverse=True)
     print(f"graph: {G.number_of_nodes():,} nodes, {G.number_of_edges():,} edges, "
-          f"{joined} dangling ends joined, {len(comps)} components (largest {comps[0]:,} nodes)")
+          f"{joined} dangling ends joined, {healed} same-road holes healed (≤{DANGLE_ROAD_M:.0f} m), "
+          f"{len(comps)} components (largest {comps[0]:,} nodes)")
     lens = np.array([g.length for g in geoms])
     print(f"edge length median {np.median(lens):.0f} m, p90 {np.percentile(lens, 90):.0f} m")
 

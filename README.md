@@ -14,9 +14,9 @@ _Updated 2026-11-24 (gap fixes, tighter map frame)_
   by its own chainage (km). The old approach (`legacy/`) cut the network first and gave
   each piece the nearest counting point's value. In that version **369 sections (≈2,100 km)
   never showed their own value**: they took their neighbour's.
-- **2,423 / 2,424 sections placed (18,357 km)**; the one missing is S1h Brzeszcze–Stara Wieś
-  (opened Dec 2025, no count, still under construction in BDOT10k). 97% of km have a geometry
-  length within ±20–25% of the official GPR length; median ratio 1.000.
+- **All 2,424 sections placed (18,364 km)**. 98.4% of km have a geometry length within
+  ±20–25% of the official GPR length; median ratio 1.000. Only 56 sections still carry a
+  `scale` flag (175 before the long-edge fix below).
 - Roads that were not in operation in 2025:
   - BDOT10k roads with `KAT_ISTNIE ≠ eksploatowany` are drawn dashed and routed over only as a
     costly fallback (×2.5). BDOT lags reality: bits of S61, S11, S6, S19, S3, S7… that GPR counted
@@ -29,8 +29,19 @@ _Updated 2026-11-24 (gap fixes, tighter map frame)_
 - 23 sections have their right/left counting points more than 1 km apart (two stations, or a
   wrong chainage). Their mean fell off the road and broke placement (e.g. A2 Łódź–Łowicz);
   step 01 now keeps the side consistent with the neighbouring sections (`side_used`).
-- Model network: 3,077 nodes, 3,702 links (3,122 counted, 580 uncounted ≈1,800 km),
-  98.8% of nodes in one connected component.
+- Gap fixes (2026-11-24), found with `output/qa_gaps.csv` (see step 05):
+  - **Long BDOT features split into ≤250 m graph edges.** Anchors snap to graph nodes, and new
+    expressways come as single 5–10 km features, so a counting point could snap kilometres away
+    (S7 Gdańsk ring road, S51 Olsztyn …).
+  - **Same-road holes up to 200 m healed** (BDOT has short holes, e.g. S7 near Elbląg).
+  - **Gap closing**: an open stretch of the same road between loose ends of two sections
+    (or two parts of one section) is split between them (`qa_flags` `gap_closed`). This mostly
+    happens where one chainage system hands over to the next. A/S up to 25 km; DK only up to 2 km
+    and never next to a city-limit section.
+  - What is left in `qa_gaps.csv` (87 stretches, 341 km): mostly city-managed roads and old
+    alignments left behind when a DK moved onto a bypass or an S-road.
+- Model network: 2,907 nodes, 3,473 links (2,979 counted, 494 uncounted ≈1,630 km),
+  99.3% of nodes in one connected component.
 - BDOT10k re-extracted 2026-11-24 with all attributes (92,636 features, 739 under construction).
   Mazowieckie ships its layer in two parts (`*_SKDR_L.shp` + `*_SKDR_L_1.shp`); step 00 reads both.
 - See `output/qa_report.md` for current metrics and `output/qa_sections_to_review.csv`
@@ -49,7 +60,7 @@ _Updated 2026-11-24 (gap fixes, tighter map frame)_
 | `links_2025.csv`, `nodes_2025.csv` | the same topology as plain tables (from/to node, SDRR, km) |
 | `cartogram_2025_light.png` / `_dark.png` | rendered flow map |
 | `gpr2025_sections.csv`, `gpr2025_pieces.csv` | parsed GPR tables (sections; per-chainage-system pieces) |
-| `qa_report.md`, `qa_sections_to_review.csv` | quality metrics |
+| `qa_report.md`, `qa_sections_to_review.csv`, `qa_gaps.csv` | quality metrics; uncovered stretches between sections |
 
 ## Pipeline (`pipeline/`)
 
@@ -60,10 +71,10 @@ Add `--extract` to re-extract BDOT10k first (about 1 h; only after a new BDOT do
 |---|---|
 | `00_extract_bdot.py` | national roads (`OT_SKDR_L`, `KAT_ZARZAD=krajowa`) from `Polska_SHP.zip`, all attributes, full resolution → `data/bdot/skdr_krajowe.gpkg` |
 | `01_parse_gpr.py` | GPR Tab01+Tab02 → sections + **pieces** (one per chainage system), status from remarks |
-| `02_build_graph.py` | BDOT10k lines → routable graph (operational only, healed between voivodeship sheets) |
+| `02_build_graph.py` | BDOT10k lines → routable graph (edges ≤250 m, healed between sheets and across short same-road holes; 'w budowie' as costly fallback) |
 | `03_locate_sections.py` | **linear referencing** of sections (see below) |
 | `04_build_network.py` | nodes/links: cluster section ends, split at T-junctions and at-grade crossings, add uncounted connectors |
-| `05_qa_report.py` | metrics → `qa_report.md` |
+| `05_qa_report.py` | metrics → `qa_report.md`, visible gaps → `qa_gaps.csv` |
 | `06_render_cartogram.py` | PNG maps (light/dark) |
 | `07_style_qgis.py` | `.qml` styles in `qgis/` and default styles embedded in the GeoPackage |
 
@@ -88,9 +99,11 @@ For each system:
    heading away from the neighbouring anchor.
 6. Cut every piece `[pik_pocz, pik_konc]` from the run line. Pieces with no anchor are
    placed from coordinates (`loose`) or attached to the adjacent piece of the same section.
+7. Close gaps: an open stretch of the same road left between the loose ends of two sections
+   is split between them (`gap_closed`).
 
 QA columns on `sections`: `placement` (strict/loose/attached), `qa_flags`
-(scale, chain_break, clipped, foreign, partial), `geom_km`, `len_ratio`.
+(scale, chain_break, clipped, foreign, partial, gap_closed), `geom_km`, `len_ratio`.
 
 ### Network topology (step 04), known limits
 

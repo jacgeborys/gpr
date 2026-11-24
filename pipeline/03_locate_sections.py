@@ -240,6 +240,103 @@ def merge_parts(parts):
     return linemerge(MultiLineString(lines))
 
 
+def _ends(geom):
+    g = linemerge(geom) if geom.geom_type == "MultiLineString" else geom
+    return [c for p in getattr(g, "geoms", [g]) for c in (p.coords[0][:2], p.coords[-1][:2])]
+
+
+def close_gaps(gout, skdr):
+    """Bridge breaks between consecutive sections of one road.
+
+    Where a chainage system ends (S51b → S51c, S7g → S7 …), the run is extended by its
+    remaining km, and the GDDKiA and BDOT lengths rarely agree, so the line can stop short
+    of the next section. A stretch of the same road that BDOT has open but no section
+    covers, running between the loose ends of two different sections, is split at its
+    middle and each half is given to the section on its side. Roads through cities that
+    GPR does not count are left alone: DK stretches only up to GAP_DK_M and never next to
+    a city-limit section; A/S roads (always counted) up to GAP_AS_M."""
+    from scipy.spatial import cKDTree
+    from common import skdr_tokens
+    GAP_AS_M, GAP_DK_M, END_M = 25_000, 2_000, 600
+    # BDOT road minus what sections cover; cutting (not whole-feature selection) puts the
+    # free pieces' ends right at the sections' ends
+    bufs = list(gout.geometry.buffer(30, cap_style=2))
+    btree = STRtree(bufs)
+    free = skdr[["NUMER_DROG", "geometry"]].copy()
+    cut = []
+    for g in free.geometry:
+        hits = btree.query(g, predicate="intersects")
+        if len(hits) == 0:
+            cut.append(g)
+        else:
+            from shapely.ops import unary_union
+            cut.append(g.difference(unary_union([bufs[j] for j in hits])))
+    free["geometry"] = cut
+    free = free[~free.geometry.is_empty].explode(index_parts=False)
+    free = free[free.geometry.geom_type == "LineString"]
+    free["tok"] = free["NUMER_DROG"].map(skdr_tokens)
+    ends, owner = [], []
+    for i, g in zip(gout.index, gout.geometry):
+        for e in _ends(g):
+            ends.append(e)
+            owner.append(i)
+    ends, owner = np.array(ends), np.array(owner)
+    tree = cKDTree(ends)
+    stree = STRtree(list(gout.geometry))
+    sidx = np.array(gout.index)
+    add = defaultdict(list)
+    n, km = 0, 0.0
+    for road in sorted(set(gout.road.dropna())):
+        sub = free[free.tok.map(lambda t: road in t)]
+        if not len(sub):
+            continue
+        is_as = road[:1] in "AS"
+        u = sub.geometry.unary_union
+        merged = linemerge(u) if u.geom_type == "MultiLineString" else u
+        for ch in getattr(merged, "geoms", [merged]):
+            L = ch.length
+            if L < 100 or L > (GAP_AS_M if is_as else GAP_DK_M):
+                continue
+            # each end of the free stretch must meet a loose end of a section of this road
+            # (within END_M: at interchanges the section may end on the other carriageway)
+            side = []
+            for pt in (ch.coords[0][:2], ch.coords[-1][:2]):
+                cand = [(math.dist(pt, ends[k]), k) for k in tree.query_ball_point(pt, END_M)
+                        if gout.road[owner[k]] == road]
+                side.append(min(cand) if cand else None)
+            if None in side:
+                continue
+            (_, ka), (_, kb) = side
+            sa, sb = owner[ka], owner[kb]
+            # same section is fine only between two of its parts (a break inside it)
+            if (sa == sb and ka // 2 == kb // 2) or \
+                    math.dist(ends[ka], ends[kb]) < max(300, 0.4 * L):
+                continue
+            # an end that another section of the road already touches is not loose
+            if any(gout.road[sidx[j]] == road and sidx[j] not in (sa, sb)
+                   and gout.geometry[sidx[j]].distance(Point(ends[k])) < 60
+                   for k in (ka, kb) for j in stree.query(Point(ends[k]).buffer(60))):
+                continue
+            if not is_as and any("GR. MIASTA" in str(gout.nazwa_odcinka[x]) for x in (sa, sb)):
+                continue
+            # not a second carriageway running alongside a section
+            samples = [ch.interpolate(d) for d in np.arange(50, L, 100)]
+            near = sum(1 for p in samples if any(
+                gout.geometry[sidx[j]].distance(p) < 80 for j in stree.query(p.buffer(80))))
+            if samples and near / len(samples) > 0.3:
+                continue
+            add[sa].append(substring(ch, 0, L / 2))
+            add[sb].append(substring(ch, L / 2, L))
+            n += 1
+            km += L / 1000
+    for i, extra in add.items():
+        gout.at[i, "geometry"] = merge_parts([gout.geometry[i]] + extra)
+        fl = [f for f in str(gout.at[i, "qa_flags"] or "").split(",") if f]
+        gout.at[i, "qa_flags"] = ",".join(sorted(set(fl) | {"gap_closed"}))
+    print(f"gaps closed: {n} ({km:.0f} km) on {len(add)} sections")
+    return gout
+
+
 def main():
     sec = pd.read_csv(config.SECTIONS_CSV)
     pcs = pd.read_csv(config.OUT / f"gpr{config.YEAR}_pieces.csv")
@@ -371,6 +468,7 @@ def main():
             "odcinek_gpr2020", "uwagi"]
     out = sec[keep].merge(geo, on="numer_odcinka", how="left")
     gout = gpd.GeoDataFrame(out[out.geometry.notna()], geometry="geometry", crs=2180)
+    gout = close_gaps(gout, D["skdr_oper"])
     gout["geom_km"] = (gout.length / 1000).round(3)
     gout["len_ratio"] = (gout["geom_km"] / gout["dlugosc_km"]).round(3)
 
