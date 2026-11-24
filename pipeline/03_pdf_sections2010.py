@@ -29,10 +29,11 @@ import config
 
 GREY = ((0.5, 0.5, 0.5), 2.87)
 GREEN = (0.645, 0.992, 0.629)
-MAIN_X = 1150
-TOUCH_M = 600
+MAIN_X = 1150            # page x left of this = the three insets
+TOUCH_M = 600            # two map lines whose ends are this close are consecutive
 LABEL_CLUSTERS = {0: "7", 2: "9", 3: "5", 4: "0", 6: "6", 8: "8", 9: "2", 11: "3", 12: "2", 14: "2"}
-LABEL_ONEFOUR = 10       # k-means cluster holding both 1 and 4 (split by ink)          # two map lines whose ends are this close are consecutive          # page x left of this = the three insets
+LABEL_ONEFOUR = 10       # k-means cluster holding both 1 and 4 (split by ink)
+CACHE = config.OUT / "pdf2010_cache.pkl"   # parsed PDF (lines, band, glyphs, affine): ~4 min to rebuild
 
 
 def densify(a, step):
@@ -48,8 +49,14 @@ def page_lines():
     pdf_path = config.GPR2010_DIR / "Mapa_SDR2010.pdf"
     with pdfplumber.open(pdf_path) as pdf:
         p = pdf.pages[0]
-        out, green = [], []
+        out, green, glyph = [], [], []
         size = (p.width, p.height)
+        for o in p.curves:
+            col = o.get("non_stroking_color")
+            if o.get("fill") and col and tuple(round(c, 3) for c in col) == (0, 0, 0) and o.get("pts"):
+                a = np.array(o["pts"], float)
+                if a[:, 0].min() >= MAIN_X and max(np.ptp(a, 0)) <= 9:
+                    glyph.append(a)
         for o in p.curves + p.lines:
             col = o.get("stroking_color")
             key = (tuple(round(c, 3) for c in col) if col else None, round(o.get("linewidth", 0), 2))
@@ -61,7 +68,22 @@ def page_lines():
                     out.append(a)
             elif key[0] == GREEN:
                 green.append((key[1], o["pts"]))
-    return out, green, size
+    return out, green, size, glyph
+
+
+def load_pdf():
+    """Parse the PDF once (grey lines, band widths, glyph pieces, georeference) and cache it."""
+    src = config.GPR2010_DIR / "Mapa_SDR2010.pdf"
+    if CACHE.exists() and CACHE.stat().st_mtime > src.stat().st_mtime:
+        with open(CACHE, "rb") as f:
+            return pickle.load(f)
+    raw, green, size, glyph = page_lines()
+    A = fit_affine(raw)
+    bw = band_widths(raw, green, size)
+    d = dict(raw=raw, size=size, glyph=glyph, A=A, bw=bw)
+    with open(CACHE, "wb") as f:
+        pickle.dump(d, f)
+    return d
 
 
 def band_widths(lines, green, size, S=3.0):
@@ -117,14 +139,13 @@ def fit_affine(lines):
     return A
 
 
-def label_bonus(s, raw, cost, exact_bonus=60.0, near_bonus=20.0, max_pt=14.0):
+def label_bonus(s, raw, glyph, cost, exact_bonus=60.0, near_bonus=20.0, max_pt=14.0):
     """The SDR value printed on each band: a line whose label reads as a section's SDR (exact
     match with the 2010 table) is that section's line; a near-miss reading (one digit off)
     gives a smaller bonus."""
     import pdf_labels2010 as pl
     vals = s.sdrr_total.dropna().astype(int).astype(str)
-    reads = pl.read_labels(config.GPR2010_DIR / "Mapa_SDR2010.pdf", set(vals),
-                           LABEL_CLUSTERS, LABEL_ONEFOUR)
+    reads = pl.read_labels(glyph, set(vals), LABEL_CLUSTERS, LABEL_ONEFOUR)
     from shapely.geometry import LineString as _LS, Point as _P
     from shapely.strtree import STRtree as _T
     rl = [_LS(g) for g in raw]
@@ -136,12 +157,15 @@ def label_bonus(s, raw, cost, exact_bonus=60.0, near_bonus=20.0, max_pt=14.0):
     pos = {k: n for n, k in enumerate(s.index)}
     n_ex = n_near = 0
     out = cost.copy()
+    rec = []   # (page x, y, text, exact, line or -1)
     for x, y, txt, exact in reads:
         q = _P(x, y)
         hits = [j for j in tr.query(q.buffer(max_pt)) if rl[j].distance(q) <= max_pt]
+        rec.append([x, y, txt, exact, -1])
         if not hits:
             continue
         j = min(hits, key=lambda j: rl[j].distance(q))
+        rec[-1][4] = j
         if exact:
             for i in by_val.get(txt, []):
                 out[pos[i], j] -= exact_bonus
@@ -154,7 +178,7 @@ def label_bonus(s, raw, cost, exact_bonus=60.0, near_bonus=20.0, max_pt=14.0):
                     out[pos[i], j] -= near_bonus
             n_near += bool(near)
     print(f"map labels read: {len(reads)}; exact SDR on a line: {n_ex}, one digit off: {n_near}")
-    return out
+    return out, rec
 
 
 def chain_bonus(s, lines, cost, touch_m=TOUCH_M, k_cand=40, jump=8.0, bonus=10.0):
@@ -219,11 +243,10 @@ def chain_bonus(s, lines, cost, touch_m=TOUCH_M, k_cand=40, jump=8.0, bonus=10.0
 
 
 def main():
-    raw, green, size = page_lines()
-    A = fit_affine(raw)
+    d = load_pdf()
+    raw, glyph, A, bw = d["raw"], d["glyph"], d["A"], d["bw"]
     lines = [LineString(np.c_[g, np.ones(len(g))] @ A.T) for g in raw]
     L = np.array([ln.length / 1000 for ln in lines])
-    bw = band_widths(raw, green, size)
     bw = np.where(np.isnan(bw), np.nanmedian(bw), bw)
     print(f"2010 map lines: {len(lines)} ({L.sum():,.0f} km); band width median {np.median(bw):.1f} pt")
 
@@ -251,7 +274,7 @@ def main():
     cost = (1.5 * dist + 3 * np.abs(np.log(np.maximum(L, 0.1)[None, :] / want))
             + 2 * np.abs(np.log(sdr_est[None, :] / sdr)))
     cost = np.nan_to_num(cost, nan=1e3, posinf=1e3)
-    cost = label_bonus(s, raw, cost)
+    cost, reads = label_bonus(s, raw, glyph, cost)
     cost = chain_bonus(s, lines, cost)
     rows, cols = linear_sum_assignment(cost)
     s["line"] = -1
@@ -276,11 +299,25 @@ def main():
     keep = [c for c in ["numer_odcinka", "nr_drogi", "system", "road", "road_class",
                         "nazwa_odcinka", "pik_pocz", "pik_konc", "dlugosc_km", "status",
                         "sdrr_total", "sdrr_heavy", "heavy_share", "geom_km", "len_ratio",
-                        "placement", "qa_flags", "match_cost", "sdr_band", "geometry"] if c in g.columns]
+                        "placement", "qa_flags", "match_cost", "sdr_band", "line", "geometry"] if c in g.columns]
     config.NETWORK_GPKG.unlink(missing_ok=True)
     g[keep].to_file(config.NETWORK_GPKG, layer="sections", driver="GPKG")
     gpd.GeoDataFrame(geometry=[], crs=2180).to_file(config.NETWORK_GPKG, layer="skdr_unmeasured",
                                                     driver="GPKG")
+    # debug layers: every map line with its label read(s) and the section it got
+    lab = pd.DataFrame(reads, columns=["px", "py", "label", "exact", "line"])
+    xy = np.c_[lab.px, lab.py, np.ones(len(lab))] @ A.T
+    gpd.GeoDataFrame(lab, geometry=gpd.points_from_xy(xy[:, 0], xy[:, 1]), crs=2180).to_file(
+        config.NETWORK_GPKG, layer="map_labels", driver="GPKG")
+    per = lab[lab.line >= 0].groupby("line").agg(
+        labels=("label", lambda v: ";".join(v)),
+        label_exact=("exact", "any"))
+    ml = gpd.GeoDataFrame({"line": range(len(lines)), "km": L.round(2), "band_pt": np.round(bw, 1),
+                           "sdr_band": sdr_est.round()}, geometry=lines, crs=2180)
+    ml = ml.join(per, on="line")
+    ml = ml.merge(s.loc[s.line >= 0, ["line", "numer_odcinka", "system", "pik_pocz", "sdrr_total"]],
+                  on="line", how="left")
+    ml.to_file(config.NETWORK_GPKG, layer="map_lines", driver="GPKG")
     print(f"saved {config.NETWORK_GPKG}")
 
 

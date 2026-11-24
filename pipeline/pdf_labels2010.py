@@ -10,7 +10,6 @@ read both ways (it may be upside down) and the reading that is an SDR value of t
 wins. Returns [(page_x, page_y, text, exact)], exact = text is a value in the table.
 """
 import numpy as np
-import pdfplumber
 from PIL import Image, ImageDraw
 from scipy.ndimage import gaussian_filter
 from scipy.sparse import coo_matrix
@@ -26,16 +25,8 @@ def _components(pairs, n):
     return connected_components(g, directed=False)[1]
 
 
-def glyph_labels(pdf_path):
-    pieces = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for o in pdf.pages[0].curves:
-            col = o.get("non_stroking_color")
-            if not o.get("fill") or not col or tuple(round(c, 3) for c in col) != (0, 0, 0):
-                continue
-            a = np.array(o["pts"], float)
-            if a[:, 0].min() >= MAIN_X and max(np.ptp(a, 0)) <= 9:
-                pieces.append(a)
+def glyph_labels(pieces):
+    """pieces: black filled outlines (page coords) from the main map."""
     allpts = np.vstack(pieces)
     owner = np.repeat(np.arange(len(pieces)), [len(a) for a in pieces])
     pr = cKDTree(allpts).query_pairs(0.35, output_type="ndarray")
@@ -100,8 +91,8 @@ def build_templates(X, k=16, seed=0):
     return C, a
 
 
-def read_labels(pdf_path, table_values, clean, onefour):
-    labels = glyph_labels(pdf_path)
+def read_labels(pieces, table_values, clean, onefour):
+    labels = glyph_labels(pieces)
     X = np.array([im.ravel() for _, ims in labels for im in ims])
     C, a = build_templates(X)
     ex, lab = [], []

@@ -13,3 +13,6 @@ output/traffic_network_2010.gpkg
 legacy/output/
 legacy/gpr2025.gpkg
 *.bak
+output/pdf2010_cache.pkl
+output/debug2010/
+data/pdf2010_network.gpkg
