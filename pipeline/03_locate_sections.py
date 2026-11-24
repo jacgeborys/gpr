@@ -388,6 +388,61 @@ def close_gaps(gout, skdr):
     return gout
 
 
+def _junctions(name):
+    """'W. BIELSK PODL. ZACH. - W. BOĆKI' → ['W. BIELSK PODL. ZACH.', 'W. BOĆKI']."""
+    parts = [p.split("/")[0].strip().upper() for p in str(name).split(" - ")]
+    return parts if len(parts) == 2 else [None, None]
+
+
+def trim_at_shared_interchanges(gout, near_m=150, min_tail_m=300):
+    """Cut a section where it runs past the interchange it is named to end at.
+
+    If section A ends at interchange 'W. X' and a section B of another road starts or ends
+    at 'W. X' at a point lying on A's line (not at A's end), A's line beyond that point is
+    a run-on onto a road that GPR does not continue on (S19 south of Boćki: built, closed
+    in 2025; traffic leaves for DK19). A keeps the side whose length matches its GPR length.
+    """
+    from shapely.ops import nearest_points  # noqa: F401
+    j = gout.nazwa_odcinka.map(_junctions)
+    by_name = defaultdict(list)
+    for i, (a, b) in j.items():
+        for nm in (a, b):
+            if nm and nm.startswith("W. "):
+                by_name[nm].append(i)
+    n = 0
+    for i, names in j.items():
+        line = gout.geometry[i]
+        if line.geom_type != "LineString":
+            line = linemerge(line)
+            if line.geom_type != "LineString":
+                continue
+        for nm in names:
+            if not nm or not nm.startswith("W. "):
+                continue
+            for k in by_name[nm]:
+                if k == i or gout.road[k] == gout.road[i]:
+                    continue
+                for e in _ends(gout.geometry[k]):
+                    p = Point(e)
+                    if line.distance(p) > near_m:
+                        continue
+                    d = line.project(p)
+                    if d < min_tail_m or d > line.length - min_tail_m:
+                        continue
+                    want = gout.dlugosc_km[i] * 1000
+                    a, b = substring(line, 0, d), substring(line, d, line.length)
+                    keep = a if abs(a.length - want) <= abs(b.length - want) else b
+                    if abs(keep.length - want) >= abs(line.length - want):
+                        continue  # cutting would not bring it closer to its GPR length
+                    line = keep
+                    gout.at[i, "geometry"] = keep
+                    fl = [f for f in str(gout.at[i, "qa_flags"] or "").split(",") if f]
+                    gout.at[i, "qa_flags"] = ",".join(sorted(set(fl) | {"trimmed"}))
+                    n += 1
+    print(f"sections trimmed at a shared interchange: {n}")
+    return gout
+
+
 def main():
     sec = pd.read_csv(config.SECTIONS_CSV)
     pcs = pd.read_csv(config.OUT / f"gpr{config.YEAR}_pieces.csv")
@@ -524,6 +579,7 @@ def main():
     out = sec[keep].merge(geo, on="numer_odcinka", how="left")
     gout = gpd.GeoDataFrame(out[out.geometry.notna()], geometry="geometry", crs=2180)
     gout = close_gaps(gout, D["skdr_oper"])
+    gout = trim_at_shared_interchanges(gout)
     gout["geom_km"] = (gout.length / 1000).round(3)
     gout["len_ratio"] = (gout["geom_km"] / gout["dlugosc_km"]).round(3)
 

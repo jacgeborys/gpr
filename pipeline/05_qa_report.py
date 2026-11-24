@@ -23,6 +23,7 @@ FLAG_HELP = {
     "partial": "one of the section's chainage pieces could not be placed",
     "none": "extension found nothing to follow",
     "gap_closed": "a break to the next section of the road was bridged (half of it added here)",
+    "trimmed": "line cut where a section of another road starts at the same-named interchange",
 }
 
 
