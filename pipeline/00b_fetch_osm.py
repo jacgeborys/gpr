@@ -61,8 +61,26 @@ def junctions():
     print(f"saved {len(g)} named junction nodes")
 
 
+def places():
+    """Settlement names (place=city/town/village/hamlet/suburb/quarter/isolated_dwelling),
+    used to locate GPR 2010 counting points, which come with a locality name but no coordinates."""
+    from shapely.geometry import Point
+    kinds = {"city", "town", "village", "hamlet", "suburb", "quarter", "neighbourhood",
+             "isolated_dwelling", "locality"}
+    rows = []
+    fp = (osmium.FileProcessor(str(config.OSM_PBF), osmium.osm.NODE)
+          .with_filter(osmium.filter.KeyFilter("place")))
+    for n in fp:
+        if n.tags.get("place") in kinds and n.tags.get("name") and n.location.valid():
+            rows.append(dict(name=n.tags["name"], place=n.tags["place"],
+                             geometry=Point(n.location.lon, n.location.lat)))
+    g = gpd.GeoDataFrame(rows, crs=4326).to_crs(2180)
+    g.to_file(config.OSM_GPKG, layer="places", driver="GPKG")
+    print(f"saved {len(g)} place names")
+
+
 def main():
-    what = sys.argv[1:] or ["roads", "cities", "junctions"]
+    what = sys.argv[1:] or ["roads", "cities", "junctions", "places"]
     if not config.OSM_PBF.exists():
         raise SystemExit(f"missing {config.OSM_PBF}: download poland-latest.osm.pbf from Geofabrik")
     if "roads" in what:
@@ -71,6 +89,8 @@ def main():
         cities()
     if "junctions" in what:
         junctions()
+    if "places" in what:
+        places()
 
 
 def roads():

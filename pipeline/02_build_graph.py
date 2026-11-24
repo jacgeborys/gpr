@@ -32,6 +32,8 @@ DANGLE_ROAD_M = 200.0
 DANGLE_AS_M = 1000.0
 DANGLE_TO_AS_M = 600.0
 MAX_EDGE_M = 250.0
+DW_NEAR_M = 6_000.0
+POINT_ON_M = 300.0   # past years: an A/S chain with a counting point this close existed then   # past years: regional roads this close to a counting point join the graph
 OSM_BUFFER_M = 40.0   # OSM within this of a BDOT national road = BDOT already has it
 OSM_MIN_M = 60.0      # shorter OSM leftovers are carriageway/vertex noise
 OSM_TIE_M = 80.0      # an OSM patch end is tied to a BDOT node this close
@@ -59,8 +61,8 @@ def osm_patches(skdr, G, node_xy, add_edge, next_id):
     added as edges with osm=True (costlier, see config.COST_OSM), and each loose end is
     tied to the nearest graph node within OSM_TIE_M. Returns the patch GeoDataFrame.
     """
-    if not config.OSM_GPKG.exists():
-        print("no OSM layer (run 00b_fetch_osm.py) — skipping OSM patches")
+    if not config.OSM_GPKG.exists() or config.YEAR != 2025:
+        print("no OSM patches (no current OSM layer, or a past year built from OSM history)")
         return None
     from shapely.ops import unary_union
     from shapely.strtree import STRtree
@@ -119,10 +121,70 @@ def osm_patches(skdr, G, node_xy, add_edge, next_id):
     return patches
 
 
+def past_network(skdr):
+    """The network of a past GPR round, derived from today's: motorways / expressways exist
+    only where that round has A/S sections (their km ranges, located through the 2025 sections
+    of the same chainage system); regional roads are added as a fallback, since many old
+    national alignments were downgraded to regional roads once the new roads opened.
+    (OSM history would be better, but its public geometry API refuses downloads.)"""
+    import pandas as pd
+    from shapely.ops import unary_union
+    old = pd.read_csv(config.SECTIONS_CSV)
+    old = old[old["system"].astype(str).str.match(r"^[AS]\d")]
+    sec25 = gpd.read_file(config.OUT / "traffic_network_2025.gpkg", layer="sections")
+    keep_geoms = []
+    for sysname, g in old.groupby("system"):
+        s25 = sec25[(sec25["system"] == sysname) | (sec25["road"] == g["road"].iloc[0])]
+        for r in g.itertuples():
+            hit = s25[(s25.pik_pocz < r.pik_konc) & (s25.pik_konc > r.pik_pocz)]
+            keep_geoms.extend(hit.geometry)
+    corridor = unary_union([x.buffer(150) for x in keep_geoms]) if keep_geoms else None
+    tok = skdr["NUMER_DROG"].map(skdr_tokens)
+    is_as = tok.map(lambda ts: any(x[:1] in "AS" for x in ts))
+    mids = skdr.geometry.interpolate(0.5, normalized=True)
+    inside = mids.within(corridor) if corridor is not None else False
+    # an A/S stretch existed if a counting point of this round lies on it (S8 Piotrków–Rawa
+    # was counted as DK8 in 2010, on today's S8 alignment): merge A/S pieces into chains
+    # between junctions and keep a chain that has such a point within POINT_ON_M
+    from shapely.ops import linemerge
+    from shapely.strtree import STRtree as _T
+    pts = pd.read_csv(config.SECTIONS_CSV).dropna(subset=["x"])
+    ptree = cKDTree(np.c_[pts.x, pts.y])
+    cand = is_as & ~inside
+    merged = linemerge(skdr.geometry[cand].unary_union)
+    chains = [c for c in getattr(merged, "geoms", [merged])]
+    keep_chain = []
+    for c in chains:
+        q = [c.interpolate(d) for d in np.arange(0, c.length, 100)] + [c.interpolate(c.length)]
+        d, _ = ptree.query(np.array([(p.x, p.y) for p in q]))
+        keep_chain.append(c.buffer(30)) if (d <= POINT_ON_M).any() else None
+    kept = unary_union(keep_chain) if keep_chain else None
+    on_kept = mids.within(kept) if kept is not None else pd.Series(False, index=skdr.index)
+    drop = cand & ~on_kept
+    print(f"{config.YEAR} network: A/S pieces kept {int((is_as & ~drop).sum())}, "
+          f"dropped (opened later) {int(drop.sum())} ({skdr[drop].length.sum() / 1000:,.0f} km)")
+    skdr = skdr[~drop]
+    dw = gpd.read_file(config.DW_GPKG).to_crs(2180).explode(index_parts=False)
+    dw = dw[dw.geometry.geom_type == "LineString"]
+    # only regional roads near this round's counting points (memory: the full set is 177k pieces)
+    pts = old_all = pd.read_csv(config.SECTIONS_CSV).dropna(subset=["x"])
+    near = gpd.GeoDataFrame(geometry=gpd.points_from_xy(pts.x, pts.y), crs=2180).buffer(DW_NEAR_M)
+    hit = gpd.sjoin(gpd.GeoDataFrame(geometry=dw.geometry.values, crs=2180),
+                    gpd.GeoDataFrame(geometry=near.values, crs=2180), predicate="intersects")
+    dw = dw.iloc[sorted(set(hit.index))]
+    num = dw["NUMER_DROG"].fillna("").astype(str).str.split(r"[|;,\s]+").str[0].str.strip()
+    dw = gpd.GeoDataFrame(dict(NUMER_DROG=("DW" + num).where(num != "", None),
+                               KAT_ISTNIE="eksploatowany", geometry=dw.geometry.values), crs=2180)
+    print(f"+ regional roads near the counting points as fallback: {len(dw):,} pieces")
+    return gpd.GeoDataFrame(pd.concat([skdr, dw], ignore_index=True), crs=2180)
+
+
 def main():
     skdr = gpd.read_file(config.SKDR_GPKG, layer="skdr_krajowe").to_crs(2180)
     skdr = skdr.explode(index_parts=False).reset_index(drop=True)
     skdr = skdr[skdr.geometry.geom_type == "LineString"].copy()
+    if config.YEAR != 2025:
+        skdr = past_network(skdr)
     skdr["tokens"] = skdr["NUMER_DROG"].map(skdr_tokens)
     if "KAT_ISTNIE" in skdr.columns:
         oper = skdr["KAT_ISTNIE"].fillna("eksploatowany") == "eksploatowany"
@@ -170,7 +232,7 @@ def main():
                                             routable["oper"])):
         u, v = int(node_of_end[i, 0]), int(node_of_end[i, 1])
         k = int(np.ceil(geom.length / MAX_EDGE_M))
-        if k <= 1 or u == v:
+        if k <= 1 or u == v or not tok:   # unnumbered (regional fallback) pieces stay whole
             add_edge(u, v, geom, tok, bool(op))
             continue
         cuts = np.linspace(0, geom.length, k + 1)

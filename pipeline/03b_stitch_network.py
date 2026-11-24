@@ -44,7 +44,8 @@ FOLLOW_M = 8_000
 HOLE_JUMP_M = 600          # … starting up to this far from the end (BDOT holes)           # a loose end follows its own road this far to reach the network
 CITY_GUARD_M = 1_000       # … unless one lies in / at a city with powiat rights
 PARALLEL_M = 2_500          # an uncounted chain entirely this close to a counted route duplicates it
-STRAIGHT_M = 30          # shorter joins are drawn straight
+STRAIGHT_M = 30
+MAX_STRAIGHT_M = 2_000     # no straight joins longer than this (no road between → no join)          # shorter joins are drawn straight
 
 D = pickle.load(open(config.GRAPH_PKL, "rb"))
 G, GEOMS, XY = D["G"], D["geoms"], D["node_xy"]
@@ -53,8 +54,10 @@ NODE_TREE = cKDTree(np.array([XY[n] for n in NODES]))
 
 
 def road_path(p, q):
-    """Coordinates of a road path from p to q (both included), or a straight line."""
+    """Coordinates of a road path from p to q (both included); a straight line if there is
+    no sensible road path and they are at most MAX_STRAIGHT_M apart; otherwise None."""
     d = math.dist(p, q)
+    straight = [p, q] if d <= MAX_STRAIGHT_M else None
     if d < STRAIGHT_M:
         return [p, q]
     _, (i, j) = NODE_TREE.query([p, q])
@@ -62,7 +65,7 @@ def road_path(p, q):
     try:
         nodes = nx.dijkstra_path(G, u, v, weight="len")
     except nx.NetworkXNoPath:
-        return [p, q]
+        return straight
     coords = [p]
     for a, b in zip(nodes[:-1], nodes[1:]):
         c = list(GEOMS[G[a][b]["eid"]].coords)
@@ -72,7 +75,7 @@ def road_path(p, q):
     coords.append(q)
     line = LineString(coords)
     if line.length > max(3 * d, d + 3000):
-        return [p, q]
+        return straight
     return [tuple(c[:2]) for c in line.coords]
 
 
@@ -111,10 +114,13 @@ def as_single(geom):
                         best = (d, k, at_end, cc)
         _, k, at_end, cc = best
         parts.pop(k)
+        link = road_path(coords[-1], cc[0]) if at_end else road_path(cc[-1], coords[0])
+        if link is None:
+            continue   # a stray piece far away with no road to it: dropped
         if at_end:
-            coords = coords + road_path(coords[-1], cc[0])[1:-1] + cc
+            coords = coords + link[1:-1] + cc
         else:
-            coords = cc + road_path(cc[-1], coords[0])[1:-1] + coords
+            coords = cc + link[1:-1] + coords
     return coords
 
 
@@ -262,21 +268,33 @@ def main():
             continue
         pa, pb = anchor.get(ra), anchor.get(rb)
         if pa is None and pb is None:
-            first, second, mid = half_split(road_path(end_xy(ea), end_xy(eb)))
+            path = road_path(end_xy(ea), end_xy(eb))
+            if path is None:
+                continue
+            first, second, mid = half_split(path)
             extend(ea, first)
             extend(eb, second[::-1])
             new = mid
         elif pa is not None and pb is None:
-            extend(eb, road_path(end_xy(eb), pa))
+            link = road_path(end_xy(eb), pa)
+            if link is None:
+                continue
+            extend(eb, link)
             new = pa
         elif pb is not None and pa is None:
-            extend(ea, road_path(end_xy(ea), pb))
+            link = road_path(end_xy(ea), pb)
+            if link is None:
+                continue
+            extend(ea, link)
             new = pb
         else:
             if math.dist(pa, pb) > NEAR_M and kind != "consecutive":
                 continue   # two established nodes: leave them apart (unless consecutive
                            # sections of one road: then eb runs on to the other node)
-            extend(eb, road_path(end_xy(eb), pa))
+            link = road_path(end_xy(eb), pa)
+            if link is None:
+                continue
+            extend(eb, link)
             new = pa
         parent[rb] = ra
         anchor[ra] = new
@@ -305,7 +323,7 @@ def main():
         if find(ea) != ea or find(eb) != eb or ea in anchor or eb in anchor:
             continue
         path = road_path(end_xy(ea), end_xy(eb))
-        if len(path) <= 2 or LineString(path).length > max(1.6 * d, d + 1500):
+        if path is None or len(path) <= 2 or LineString(path).length > max(1.6 * d, d + 1500):
             continue   # no road between them (straight fallback) or a long detour
         first, second, mid = half_split(path)
         extend(ea, first)
@@ -396,7 +414,10 @@ def main():
         if best is None or best[0] < 1:
             continue
         q = lines[best[1]].interpolate(lines[best[1]].project(p))
-        extend(e, road_path(end_xy(e), (q.x, q.y)))
+        link = road_path(end_xy(e), (q.x, q.y))
+        if link is None:
+            continue
+        extend(e, link)
         tied += 1
 
     sec["geometry"] = [LineString(coords[i]) for i in sec.index]

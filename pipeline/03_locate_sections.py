@@ -52,6 +52,9 @@ EDGE_NODES = {d["eid"]: (u, v) for u, v, d in G.edges(data=True)}
 # opened in/after 2025 (status opened_after_count / pending_2026): BDOT still shows those
 # as under construction, and the old road alongside must not take their place
 NONOP = {"mult": config.COST_NOT_OPERATIONAL}
+# an extension counts as "on the road" while its cost/length stays below this; past rounds run
+# over renumbered and downgraded (regional) roads, which cost more
+PURE_MAX = 1.5 if config.YEAR == 2025 else config.COST_REGIONAL_PAST + 0.1
 
 
 def edge_mult(d, road, number):
@@ -62,6 +65,10 @@ def edge_mult(d, road, number):
         return k * config.COST_SAME_ROAD
     if number in d["num"]:
         return k * config.COST_SAME_NUMBER
+    if config.YEAR != 2025:
+        # past rounds: many numbers changed since (old DK2 is DK92 now, DK1 is DK91 …), so any
+        # national road is nearly as good; regional roads (no number in the graph) less so
+        return k * (config.COST_OTHER_ROAD_PAST if d["tok"] else config.COST_REGIONAL_PAST)
     return k * config.COST_OTHER_ROAD
 
 
@@ -147,7 +154,7 @@ def extend(a, d_target, ref_xy, road, number):
             pt = line.interpolate(d_target - real[u])
             purity = dist[v] / max(real[v], 1.0)
             cands.append((away(pt.coords[0]), purity, p[:-1], pt.coords[0]))
-    pure = [c for c in cands if c[1] <= 1.5]
+    pure = [c for c in cands if c[1] <= PURE_MAX]
     if ref_xy is not None:
         # never turn back towards the reference: if the road ends before d_target in the
         # right direction, stop there (clipped) rather than take a full-length wrong way
@@ -156,7 +163,7 @@ def extend(a, d_target, ref_xy, road, number):
         best = max(pure, key=lambda c: c[0] / c[1] ** 2)
         return path_coords(best[2]) + [best[3]], "ok"
     # road ends before d_target: stop at the farthest node reached on the right road
-    ends = [(away(XY[v]), v) for v in real if v != a and dist[v] / max(real[v], 1) <= 1.5]
+    ends = [(away(XY[v]), v) for v in real if v != a and dist[v] / max(real[v], 1) <= PURE_MAX]
     ends = [e for e in ends if e[0] > 0]
     if ends:
         v = max(ends)[1]

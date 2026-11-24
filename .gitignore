@@ -8,7 +8,8 @@ __pycache__/
 # large or regenerable data
 data/bdot/
 data/osm/
-output/skdr_graph.pkl
+output/skdr_graph*.pkl
+output/traffic_network_2010.gpkg
 legacy/output/
 legacy/gpr2025.gpkg
 *.bak

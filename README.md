@@ -63,6 +63,23 @@ _Updated 2026-11-24_
   regional roads); 97.4% of nodes in one component. Dead ends > 3 km from the border: 34 on
   national roads, 590 on regional roads (they often end in towns).
 
+### GPR 2010 (work in progress)
+
+- `01_parse_gpr2010.py` reads the 2010 PDFs from the GDDKiA archive (`data/raw/2010/`: Tablica 1
+  section list, Tablica 2 SDR; 1,792 sections, all with SDR). 2010 counting points have no
+  coordinates: they are located by their km on the placed 2025 sections of the same chainage system,
+  or by the locality name (OSM places, step 00b `places`) next to a road with that number — or any
+  national road, as many were renumbered since (old DK1 → DK91, DK2 → DK92 …).
+- **2010 network** (`02_build_graph.py` with `GPR_YEAR=2010`): today's BDOT network minus motorway /
+  expressway stretches that opened later (an A/S chain is kept only if a 2010 A/S section covers it
+  or a 2010 counting point lies on it, e.g. S8 Piotrków–Rawa counted as DK8 in 2010), plus regional
+  roads near the counting points as a fallback for downgraded old national alignments. OSM history
+  would be better, but the public ohsome geometry API refuses downloads.
+- Run: `set GPR_YEAR=2010` then steps 02, `01_parse_gpr2010.py`, 03, 03b, 06 →
+  `output/cartogram_2010_*.png` (1,705 / 1,792 sections, 95% of km). Placement is single-core
+  and takes ~15 min on the larger graph. Still visible: short fragments where a section's
+  location could not be extended along its 2010 road. Next: compare with 2025 (change map).
+
 ## Outputs (`output/`)
 
 | file | what |
