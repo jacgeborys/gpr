@@ -8,54 +8,33 @@ a **node/link network** with counts attached, ready to seed a national traffic m
 
 ## Status
 
-_Updated 2026-11-24 (gap fixes, tighter map frame)_
+_Updated 2026-11-24_
 
-- Pipeline rebuilt **section-first**: every GPR section is placed on the BDOT10k road graph
-  by its own chainage (km). The old approach (`legacy/`) cut the network first and gave
-  each piece the nearest counting point's value. In that version **369 sections (≈2,100 km)
-  never showed their own value**: they took their neighbour's.
-- **All 2,424 sections placed (18,364 km)**. 98.5% of km have a geometry length within
-  ±20–25% of the official GPR length; median ratio 1.000. Only 56 sections still carry a
-  `scale` flag (175 before the long-edge fix below).
-- Roads that were not in operation in 2025:
-  - BDOT10k roads with `KAT_ISTNIE ≠ eksploatowany` are drawn dashed and routed over only as a
-    costly fallback (×2.5). BDOT lags reality: bits of S61, S11, S6, S19, S3, S7… that GPR counted
-    in 2025 are still "w budowie" there and used to break those roads into pieces (visible gaps).
-    About 140 km of such pieces now carry a counted section and are not drawn dashed.
-  - GPR sections without counts carry `status`: `opened_after_count` (opened Dec 2025),
-    `pending_2026` (supplementary count in 2026), `not_counted`.
-  - National roads with no GPR section (mostly stretches managed by cities with county rights,
-    plus old alignments) appear as grey lines and as `counted = false` links in the model network.
-- 23 sections have their right/left counting points more than 1 km apart (two stations, or a
-  wrong chainage). Their mean fell off the road and broke placement (e.g. A2 Łódź–Łowicz);
-  step 01 now keeps the side consistent with the neighbouring sections (`side_used`).
-- Gap fixes (2026-11-24), found with `output/qa_gaps.csv` (see step 05):
-  - **Long BDOT features split into ≤250 m graph edges.** Anchors snap to graph nodes, and new
-    expressways come as single 5–10 km features, so a counting point could snap kilometres away
-    (S7 Gdańsk ring road, S51 Olsztyn …).
-  - **Same-road holes healed**: up to 200 m on any road (e.g. S7 near Elbląg), up to 1 km on
-    A/S roads, where BDOT sometimes leaves interchange cores unmapped (S6 at Węzeł Chwaszczyno
-    is missing ~600 m).
-  - **Gap closing**: an open stretch of the same road between loose ends of two sections
-    (or two parts of one section) is split between them (`qa_flags` `gap_closed`). On A/S
-    roads, a stub of up to 1 km from a loose section end into an interchange with another road
-    is added to that section (the S7 link into the S6 at Chwaszczyno). This mostly
-    happens where one chainage system hands over to the next. A/S up to 25 km; DK only up to 2 km
-    and never next to a city-limit section.
-  - **One-anchor runs try both directions** and keep the one that does not run over other
-    sections' counting points (S10e at Bydgoszcz went up the S5 instead of along S5/S10).
-  - **Counting points up to 1 km outside their section's km range still anchor it**
-    (S19 Bielsk Podl. Zach.–Boćki was drawn the wrong way).
-  - **Roads opened in/after 2025** (`opened_after_count`, `pending_2026`) route freely over
-    BDOT "w budowie" edges, so the new S19 at Bielsk is drawn on the expressway, not on the old
-    DK19 alongside. That old DK19 (Bielsk–Boćki) has no GPR 2025 section at all.
-  - What is left in `qa_gaps.csv` (74 stretches, 302 km): mostly city-managed roads and old
-    alignments left behind when a DK moved onto a bypass or an S-road.
-- Model network: 99.4% of nodes in one connected component; 464 uncounted links (≈1,530 km).
-- BDOT10k re-extracted 2026-11-24 with all attributes (92,636 features, 739 under construction).
-  Mazowieckie ships its layer in two parts (`*_SKDR_L.shp` + `*_SKDR_L_1.shp`); step 00 reads both.
-- See `output/qa_report.md` for current metrics and `output/qa_sections_to_review.csv`
-  for flagged sections.
+- **All 2,424 GPR sections placed (18,364 km), and the network is continuous**: the model
+  network has 99.5% of its nodes in one component, and 60 dead ends more than 3 km from the
+  border (`qa_dead_ends.csv`, mostly real road ends and uncounted city connectors).
+- How sections are drawn (details below):
+  1. **Placement (step 03)**: each section is placed by its own chainage (km) on a routable graph
+     of BDOT10k national roads, patched with **OpenStreetMap** main roads where BDOT has holes
+     (unmapped interchange cores, roads opened after the BDOT update).
+  2. **Stitching (step 03b)**: section ends are then tied together along roads: consecutive
+     sections of one chainage system, sections named after the same interchange, and any ends
+     closer than 350 m. Continuity takes priority over the exact alignment inside interchanges or
+     whether traffic uses an old or a new alignment (e.g. DK8 Suchowola–Białystok).
+- Fixes along the way: long BDOT features split into ≤250 m edges (anchors snapped kilometres
+  off on new expressways); same-road holes healed (≤200 m, A/S ≤1 km); counting points with
+  right/left sides kilometres apart; points up to 1 km outside their section; one-anchor runs
+  and extensions that turned back; BDOT "w budowie" used as fallback, and freely for roads
+  opened in 2025.
+- Roads not open in 2025: BDOT "w budowie" is drawn dashed. GPR `status` marks sections opened
+  after the count (`opened_after_count`) or counted in 2026 (`pending_2026`), drawn dotted.
+  Closed OSM ways (`access=no`, `construction`) are never used. **S19 at Boćki**: the S19 section
+  ends at Węzeł Boćki (built S19 further south was closed in 2025), and DK19 continues south from
+  there (rule: a section is cut where a section of another road starts at the same-named
+  interchange, `qa_flags` `trimmed`).
+- Map: 9 SDRR colour classes (yellow → red → purple, reversed on dark), width ∝ SDRR, font
+  Bahnschrift. QGIS default styles in the GeoPackage use the same classes.
+- Model network: 2,663 nodes, 3,179 links (2,787 counted, 392 uncounted ≈1,360 km).
 
 ## Outputs (`output/`)
 
@@ -70,7 +49,7 @@ _Updated 2026-11-24 (gap fixes, tighter map frame)_
 | `links_2025.csv`, `nodes_2025.csv` | the same topology as plain tables (from/to node, SDRR, km) |
 | `cartogram_2025_light.png` / `_dark.png` | rendered flow map |
 | `gpr2025_sections.csv`, `gpr2025_pieces.csv` | parsed GPR tables (sections; per-chainage-system pieces) |
-| `qa_report.md`, `qa_sections_to_review.csv`, `qa_gaps.csv` | quality metrics; uncovered stretches between sections |
+| `qa_report.md`, `qa_sections_to_review.csv`, `qa_gaps.csv`, `qa_dead_ends.csv` | quality metrics; uncovered stretches between sections |
 
 ## Pipeline (`pipeline/`)
 
@@ -79,10 +58,12 @@ Add `--extract` to re-extract BDOT10k first (about 1 h; only after a new BDOT do
 
 | step | does |
 |---|---|
+| `00b_fetch_osm.py` | OSM motorway/trunk/primary (+ links) from Geofabrik `poland-latest.osm.pbf` (`config.OSM_PBF`) → `data/osm/osm_main_roads.gpkg`; run with `run_all.py --osm` |
 | `00_extract_bdot.py` | national roads (`OT_SKDR_L`, `KAT_ZARZAD=krajowa`) from `Polska_SHP.zip`, all attributes, full resolution → `data/bdot/skdr_krajowe.gpkg` |
 | `01_parse_gpr.py` | GPR Tab01+Tab02 → sections + **pieces** (one per chainage system), status from remarks |
 | `02_build_graph.py` | BDOT10k lines → routable graph (edges ≤250 m, healed between sheets and across short same-road holes; 'w budowie' as costly fallback) |
 | `03_locate_sections.py` | **linear referencing** of sections (see below) |
+| `03b_stitch_network.py` | make the network continuous: join consecutive / same-interchange / nearby section ends along roads (`stitched`), tie loose ends onto nearby lines |
 | `04_build_network.py` | nodes/links: cluster section ends, split at T-junctions and at-grade crossings, add uncounted connectors |
 | `05_qa_report.py` | metrics → `qa_report.md`, visible gaps → `qa_gaps.csv` |
 | `06_render_cartogram.py` | PNG maps (light/dark) |

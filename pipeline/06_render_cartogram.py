@@ -137,8 +137,8 @@ def render(theme, sec, ctx, notop, voiv, country):
     leg2 = ax.legend(handles=ctx_h, loc="lower left", bbox_to_anchor=(0.175, 0.035),
                      frameon=False, fontsize=9, labelcolor=t["text2"], handlelength=3.4,
                      borderaxespad=0.2)
-    fig.text(0.025, 0.015, "Dane: GDDKiA GPR 2025, BDOT10k (GUGiK) · geometria odcinków: "
-             "kilometraż GPR na sieci BDOT10k", fontsize=7.5, color=t["text2"], ha="left")
+    fig.text(0.025, 0.015, "Dane: GDDKiA GPR 2025, BDOT10k (GUGiK), © autorzy OpenStreetMap · "
+             "geometria odcinków: kilometraż GPR na sieci BDOT10k uzupełnionej OSM", fontsize=7.5, color=t["text2"], ha="left")
     out = config.OUT / f"cartogram_{config.YEAR}_{theme}.png"
     fig.savefig(out, facecolor=t["bg"])
     plt.close(fig)

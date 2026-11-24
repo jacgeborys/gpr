@@ -146,6 +146,10 @@ def extend(a, d_target, ref_xy, road, number):
             purity = dist[v] / max(real[v], 1.0)
             cands.append((away(pt.coords[0]), purity, p[:-1], pt.coords[0]))
     pure = [c for c in cands if c[1] <= 1.5]
+    if ref_xy is not None:
+        # never turn back towards the reference: if the road ends before d_target in the
+        # right direction, stop there (clipped) rather than take a full-length wrong way
+        pure = [c for c in pure if c[0] > 0]
     if pure:
         best = max(pure, key=lambda c: c[0] / c[1] ** 2)
         return path_coords(best[2]) + [best[3]], "ok"
@@ -226,6 +230,16 @@ def place_run(run, anchors, road, number):
         if len(ch) > 1:
             before, f0 = extend(ch[0][1], d0, XY[ch[1][1]], road, number)
             after, f1 = extend(ch[-1][1], d1, XY[ch[-2][1]], road, number)
+        elif len(chains) > 1:
+            # lone anchor, but the run has other chains: head away from them (lower km lies
+            # away from the next chain, higher km away from the previous one)
+            nxt = XY[chains[i + 1][0][1]] if i + 1 < len(chains) else None
+            prv = XY[chains[i - 1][-1][1]] if i > 0 else None
+            before, f0 = extend(ch[0][1], d0, nxt, road, number)
+            after, f1 = extend(ch[-1][1], d1, prv if prv is not None else
+                               (before[-1] if len(before) > 1 else None), road, number)
+            if nxt is None and len(after) > 1:
+                before, f0 = extend(ch[0][1], d0, after[-1], road, number)
         else:
             # one anchor: the direction is not known. Try both (the longer side chosen
             # freely, the other heading away from it, and vice versa) and keep the one that
@@ -394,7 +408,7 @@ def _junctions(name):
     return parts if len(parts) == 2 else [None, None]
 
 
-def trim_at_shared_interchanges(gout, near_m=150, min_tail_m=300):
+def trim_at_shared_interchanges(gout, near_m=400, min_tail_m=300):
     """Cut a section where it runs past the interchange it is named to end at.
 
     If section A ends at interchange 'W. X' and a section B of another road starts or ends
