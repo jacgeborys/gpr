@@ -257,7 +257,7 @@ def close_gaps(gout, skdr):
     a city-limit section; A/S roads (always counted) up to GAP_AS_M."""
     from scipy.spatial import cKDTree
     from common import skdr_tokens
-    GAP_AS_M, GAP_DK_M, END_M = 25_000, 2_000, 600
+    GAP_AS_M, GAP_DK_M, END_M, STUB_M = 25_000, 2_000, 600, 1_000
     # BDOT road minus what sections cover; cutting (not whole-feature selection) puts the
     # free pieces' ends right at the sections' ends
     bufs = list(gout.geometry.buffer(30, cap_style=2))
@@ -304,7 +304,19 @@ def close_gaps(gout, skdr):
                 cand = [(math.dist(pt, ends[k]), k) for k in tree.query_ball_point(pt, END_M)
                         if gout.road[owner[k]] == road]
                 side.append(min(cand) if cand else None)
+            if None not in side and side[0][1] == side[1][1]:
+                side[max(range(2), key=lambda i: side[i][0])] = None  # both ends → one end
             if None in side:
+                # A/S stub from a loose section end into an interchange: the other end meets
+                # another road's section (S7 link into the S6 at Chwaszczyno …)
+                if is_as and L <= STUB_M and side.count(None) == 1:
+                    k = next(s for s in side if s is not None)[1]
+                    other = Point(ch.coords[-1 if side[0] is not None else 0][:2])
+                    if any(gout.geometry[sidx[j]].distance(other) < 60
+                           for j in stree.query(other.buffer(60))):
+                        add[owner[k]].append(ch)
+                        n += 1
+                        km += L / 1000
                 continue
             (_, ka), (_, kb) = side
             sa, sb = owner[ka], owner[kb]
@@ -319,10 +331,11 @@ def close_gaps(gout, skdr):
                 continue
             if not is_as and any("GR. MIASTA" in str(gout.nazwa_odcinka[x]) for x in (sa, sb)):
                 continue
-            # not a second carriageway running alongside a section
+            # not a second carriageway running alongside a section of this road
             samples = [ch.interpolate(d) for d in np.arange(50, L, 100)]
             near = sum(1 for p in samples if any(
-                gout.geometry[sidx[j]].distance(p) < 80 for j in stree.query(p.buffer(80))))
+                gout.road[sidx[j]] == road and gout.geometry[sidx[j]].distance(p) < 80
+                for j in stree.query(p.buffer(80))))
             if samples and near / len(samples) > 0.3:
                 continue
             add[sa].append(substring(ch, 0, L / 2))

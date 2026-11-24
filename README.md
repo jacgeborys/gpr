@@ -33,15 +33,19 @@ _Updated 2026-11-24 (gap fixes, tighter map frame)_
   - **Long BDOT features split into ≤250 m graph edges.** Anchors snap to graph nodes, and new
     expressways come as single 5–10 km features, so a counting point could snap kilometres away
     (S7 Gdańsk ring road, S51 Olsztyn …).
-  - **Same-road holes up to 200 m healed** (BDOT has short holes, e.g. S7 near Elbląg).
+  - **Same-road holes healed**: up to 200 m on any road (e.g. S7 near Elbląg), up to 1 km on
+    A/S roads, where BDOT sometimes leaves interchange cores unmapped (S6 at Węzeł Chwaszczyno
+    is missing ~600 m).
   - **Gap closing**: an open stretch of the same road between loose ends of two sections
-    (or two parts of one section) is split between them (`qa_flags` `gap_closed`). This mostly
+    (or two parts of one section) is split between them (`qa_flags` `gap_closed`). On A/S
+    roads, a stub of up to 1 km from a loose section end into an interchange with another road
+    is added to that section (the S7 link into the S6 at Chwaszczyno). This mostly
     happens where one chainage system hands over to the next. A/S up to 25 km; DK only up to 2 km
     and never next to a city-limit section.
-  - What is left in `qa_gaps.csv` (87 stretches, 341 km): mostly city-managed roads and old
+  - What is left in `qa_gaps.csv` (74 stretches, 337 km): mostly city-managed roads and old
     alignments left behind when a DK moved onto a bypass or an S-road.
-- Model network: 2,907 nodes, 3,473 links (2,979 counted, 494 uncounted ≈1,630 km),
-  99.3% of nodes in one connected component.
+- Model network: 2,896 nodes, 3,466 links (2,985 counted, 481 uncounted ≈1,610 km),
+  99.6% of nodes in one connected component.
 - BDOT10k re-extracted 2026-11-24 with all attributes (92,636 features, 739 under construction).
   Mazowieckie ships its layer in two parts (`*_SKDR_L.shp` + `*_SKDR_L_1.shp`); step 00 reads both.
 - See `output/qa_report.md` for current metrics and `output/qa_sections_to_review.csv`

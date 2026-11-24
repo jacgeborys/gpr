@@ -12,6 +12,7 @@
 Reads : config.SKDR_GPKG
 Writes: output/skdr_graph.pkl  {graph, edge geometries, node coords, SKDR frames}
 """
+import math
 import pickle
 
 import geopandas as gpd
@@ -27,6 +28,7 @@ from common import skdr_tokens
 HEAL_M = 3.0
 DANGLE_M = 20.0
 DANGLE_ROAD_M = 200.0
+DANGLE_AS_M = 1000.0
 MAX_EDGE_M = 250.0
 
 
@@ -138,21 +140,25 @@ def main():
         tok = G[n][nb]["tok"]
         if not tok:
             continue
-        dists, idx = tree.query(node_xy[n], k=12, distance_upper_bound=DANGLE_ROAD_M)
-        near = nx.single_source_dijkstra_path_length(G, n, cutoff=6 * DANGLE_ROAD_M,
-                                                     weight="len")
-        for d, j in zip(dists, idx):
-            if not np.isfinite(d) or j >= len(nodes) or d <= DANGLE_M:
+        # expressways/motorways: holes up to DANGLE_AS_M (unmapped interchange cores, e.g.
+        # S6 at Węzeł Chwaszczyno is missing ~600 m); other roads up to DANGLE_ROAD_M
+        as_tok = frozenset(t for t in tok if t[:1] in "AS")
+        radius = DANGLE_AS_M if as_tok else DANGLE_ROAD_M
+        cand = sorted((math.dist(node_xy[n], node_xy[int(nodes[j])]), int(nodes[j]))
+                      for j in tree.query_ball_point(node_xy[n], radius))
+        near = nx.single_source_dijkstra_path_length(G, n, cutoff=6 * radius, weight="len")
+        for d, m in cand:
+            if d <= DANGLE_M or m in near:
                 continue
-            m = int(nodes[j])
-            if m in near or not any(G[m][k]["tok"] & tok for k in G[m]):
+            need = as_tok if d > DANGLE_ROAD_M else tok
+            if not any(G[m][k]["tok"] & need for k in G[m]):
                 continue
             add_edge(n, m, LineString([node_xy[n], node_xy[m]]), tok, G[n][nb]["oper"])
             healed += 1
             break
     comps = sorted((len(c) for c in nx.connected_components(G)), reverse=True)
     print(f"graph: {G.number_of_nodes():,} nodes, {G.number_of_edges():,} edges, "
-          f"{joined} dangling ends joined, {healed} same-road holes healed (≤{DANGLE_ROAD_M:.0f} m), "
+          f"{joined} dangling ends joined, {healed} same-road holes healed (≤{DANGLE_ROAD_M:.0f} m, A/S ≤{DANGLE_AS_M:.0f} m), "
           f"{len(comps)} components (largest {comps[0]:,} nodes)")
     lens = np.array([g.length for g in geoms])
     print(f"edge length median {np.median(lens):.0f} m, p90 {np.percentile(lens, 90):.0f} m")

@@ -7,7 +7,7 @@
 | sections in GPR | 2424 (18,364 km) |
 | sections placed | 2424 (18,364 km) |
 | with SDRR | 2402 |
-| length within ±20–25% of GPR length | 2354 sections, 18,071 km (98.4%) |
+| length within ±20–25% of GPR length | 2353 sections, 18,065 km (98.4%) |
 | median len_ratio | 1.000 |
 
 Placement: strict 2352, attached+strict 60, loose+strict 6, loose 6
@@ -16,10 +16,10 @@ Placement: strict 2352, attached+strict 60, loose+strict 6, loose 6
 
 | flag | sections | meaning |
 |---|---|---|
+| gap_closed | 77 | a break to the next section of the road was bridged (half of it added here) |
 | scale | 56 | km between counting points disagrees with route length by >25–33% |
-| gap_closed | 30 | a break to the next section of the road was bridged (half of it added here) |
 | foreign | 26 | extension had to follow a road with a different number |
-| chain_break | 14 | route between counting points broken (missing link in BDOT10k); run split |
+| chain_break | 12 | route between counting points broken (missing link in BDOT10k); run split |
 | clipped | 10 | road ended before the section's km ran out |
 | none | 1 | extension found nothing to follow |
 
@@ -37,11 +37,11 @@ Placement: strict 2352, attached+strict 60, loose+strict 6, loose 6
 
 | metric | value |
 |---|---|
-| nodes | 2907 |
-| links (counted / uncounted) | 2979 / 494 |
-| uncounted link km | 1,631 |
-| connected components | 7 (largest 99.3%) |
-| traffic work | 282.9 M veh-km/day |
+| nodes | 2896 |
+| links (counted / uncounted) | 2985 / 481 |
+| uncounted link km | 1,614 |
+| connected components | 4 (largest 99.6%) |
+| traffic work | 282.5 M veh-km/day |
 
 ## Busiest sections
 
@@ -60,7 +60,7 @@ Placement: strict 2352, attached+strict 60, loose+strict 6, loose 6
 
 ## Visible gaps
 
-87 uncovered stretches between sections of the same road (341 km); 21 next to a city-limit section (city-managed, not counted by GPR) → `qa_gaps.csv`. Largest others:
+74 uncovered stretches between sections of the same road (337 km); 21 next to a city-limit section (city-managed, not counted by GPR) → `qa_gaps.csv`. Largest others:
 
 | road | km | between |
 |---|---|---|
@@ -77,4 +77,4 @@ Placement: strict 2352, attached+strict 60, loose+strict 6, loose 6
 | 65 | 3.78 | GR. PAŃSTWA /GOŁDAP/ - GOŁDAP /OBWODNICA (DG137524N)/ / KOWALE OLECKIE /UL. FILIPOWSKA (DW652)/ - OLECKO /OBWODNICA (DW653)/ |
 | S8 | 3.67 | W. RAWA MAZ. PŁD. /UL. KATOWICKA (DW726)/ - W. RAWA MAZ. PŁN. /DK72, DW725/ / W. RAWA MAZ. PŁD. /UL. KATOWICKA (DW726)/ - W. RAWA MAZ. PŁN. /DK72, DW725/ |
 
-143 sections to review → `qa_sections_to_review.csv`
+185 sections to review → `qa_sections_to_review.csv`
