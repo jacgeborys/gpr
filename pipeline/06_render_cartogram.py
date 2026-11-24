@@ -1,6 +1,7 @@
 """
 06_render_cartogram.py — static traffic flow map in light and dark themes:
-line width ∝ SDRR, colour = SDRR class (config.SDRR_BREAKS / SDRR_COLORS_*), font Bahnschrift.
+line width ∝ SDRR, colour continuous along the SDRR class ramp (config.SDRR_BREAKS /
+SDRR_COLORS_*: each class colour at its class middle, as in the legend), font Bahnschrift.
 
 Reads : output/traffic_network_2025.gpkg, config.BOUNDARY_SHP
 Writes: output/cartogram_2025_light.png, output/cartogram_2025_dark.png
@@ -41,6 +42,22 @@ def use_font():
         plt.rcParams["font.family"] = font_manager.FontProperties(fname=FONT_FILE).get_name()
     except (OSError, RuntimeError):
         print(f"font {FONT_FILE} not found, using the default")
+
+
+def smooth_color(v, ramp):
+    """Continuous colour: each class colour sits at its class middle (the legend swatch value)
+    and colours blend linearly in between, so local differences inside a class show."""
+    from matplotlib.colors import to_rgb
+    b = [0] + config.SDRR_BREAKS + [SDRR_MAX]
+    mids = [(lo + hi) / 2 for lo, hi in zip(b[:-1], b[1:])]
+    if v <= mids[0]:
+        return to_rgb(ramp[0])
+    if v >= mids[-1]:
+        return to_rgb(ramp[-1])
+    k = int(np.searchsorted(mids, v)) - 1
+    f = (v - mids[k]) / (mids[k + 1] - mids[k])
+    a, c = np.array(to_rgb(ramp[k])), np.array(to_rgb(ramp[k + 1]))
+    return tuple(a + (c - a) * f)
 
 
 def sdrr_class(v):
@@ -94,7 +111,7 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None):
         for s in segs(g):
             lines.append(s)
             ws.append(width(v))
-            cs.append(t["ramp"][sdrr_class(v)])
+            cs.append(smooth_color(v, t["ramp"]))
     ax.add_collection(LineCollection(lines, linewidths=ws, colors=cs, capstyle="round",
                                      joinstyle="round", zorder=4))
 
@@ -141,7 +158,7 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None):
     leg2 = ax.legend(handles=ctx_h, loc="lower left", bbox_to_anchor=(0.175, 0.035),
                      frameon=False, fontsize=9, labelcolor=t["text2"], handlelength=3.4,
                      borderaxespad=0.2)
-    fig.text(0.025, 0.015, "Dane: GDDKiA GPR 2025, BDOT10k (GUGiK), © autorzy OpenStreetMap · "
+    fig.text(0.025, 0.015, f"Dane: GDDKiA GPR {config.YEAR}, BDOT10k (GUGiK), © autorzy OpenStreetMap · "
              "geometria odcinków: kilometraż GPR na sieci BDOT10k uzupełnionej OSM", fontsize=7.5, color=t["text2"], ha="left")
     out = config.OUT / f"cartogram_{config.YEAR}_{theme}.png"
     fig.savefig(out, facecolor=t["bg"])
@@ -156,8 +173,11 @@ def main():
     ctx = gpd.read_file(config.NETWORK_GPKG, layer="skdr_unmeasured")
     cities = None
     try:
+        cities = gpd.read_file(config.OSM_GPKG, layer="cities")
+    except Exception:
+        pass
+    try:
         dw = gpd.read_file(config.NETWORK_GPKG, layer="regional_roads")
-        cities = gpd.read_file(config.OSM_GPKG, layer="cities") if config.OSM_GPKG.exists() else None
         dw["geometry"] = dw.geometry.simplify(20)
     except Exception:
         dw = None
