@@ -243,36 +243,54 @@ def neighbour_points(s, far_km=60.0):
     return s
 
 
-def label_bonus(s, lab, cost, exact_bonus=120.0, near_bonus=20.0, far_km=LABEL_FAR_KM):
+def label_bonus(s, lab, lines, cost, exact_bonus=120.0, near_bonus=20.0, reserve=80.0,
+                far_km=LABEL_FAR_KM):
     """A line whose label reads as a section's SDR (exact match with the 2010 table) is that
-    section's line, if the label is near the section's counting point (or it has none); a
-    near-miss reading (one digit off) gives a smaller bonus."""
+    section's line, if the label is near the section's counting point (or it has none), or if
+    a km-neighbour's value is read on a line touching it (the point is wrong then). A near-miss
+    reading (one digit off) gives a smaller bonus. A line read as a value that only one section
+    has is reserved for it: other sections pay `reserve` to take it."""
+    import importlib
+    edits = importlib.import_module("08_suspects2010").edits
     by_val = {}
     for n_, v in enumerate(s.sdrr_total):
         if v == v:
             by_val.setdefault(str(int(v)), []).append(n_)
+    touch = touching(lines)
+    nbk = km_neighbours(s)
+    pos = {k: n_ for n_, k in enumerate(s.index)}
+    ex = lab[(lab.line >= 0) & lab.exact]
+    lines_of = ex.groupby("label").line.agg(set).to_dict()
+    vals = np.array([str(int(v)) if v == v else "" for v in s.sdrr_total])
     xs, ys = s.x.values, s.y.values
     out = cost.copy()
-    n_ex = n_near = n_far = 0
+    n_ex = n_near = n_far = n_nb = 0
     for r in lab[lab.line >= 0].itertuples():
         if r.exact:
             hit = False
             for i in by_val.get(r.label, []):
                 if xs[i] == xs[i] and np.hypot(xs[i] - r.x, ys[i] - r.y) > far_km * 1000:
-                    continue
+                    nb_lines = set().union(*[lines_of.get(vals[pos[k]], set())
+                                             for k in nbk[s.index[i]]]) if nbk[s.index[i]] else set()
+                    if not (nb_lines & (touch[r.line] | {r.line})):
+                        continue
+                    n_nb += 1
                 out[i, r.line] -= exact_bonus
                 hit = True
             n_ex += hit
             n_far += not hit
+            if hit and len(by_val[r.label]) == 1:
+                other = np.array([edits(v, r.label) > 1 if v else True for v in vals])
+                out[other, r.line] += reserve
         else:
             near = [v for v in by_val if len(v) == len(r.label) and
-                    sum(a != b for a, b in zip(v, r.label)) == 1]
+                    sum(a_ != b_ for a_, b_ in zip(v, r.label)) == 1]
             for v in near:
                 for i in by_val[v]:
                     out[i, r.line] -= near_bonus
             n_near += bool(near)
-    print(f"label bonus: exact SDR on a line {n_ex} (far from the counting point, ignored: "
-          f"{n_far}), one digit off {n_near}")
+    print(f"label bonus: exact SDR on a line {n_ex} (of which far from the point but next to a "
+          f"km-neighbour's label: {n_nb}; far, ignored: {n_far}), one digit off {n_near}")
     return out
 
 
@@ -442,7 +460,7 @@ def main():
     cost = (1.5 * dist + 3 * np.abs(np.log(np.maximum(L, 0.1)[None, :] / want))
             + 2 * np.abs(np.log(sdr_est[None, :] / sdr)))
     cost = np.nan_to_num(cost, nan=1e3, posinf=1e3)
-    cost = label_bonus(s, lab, cost)
+    cost = label_bonus(s, lab, lines, cost)
     cost = chain_bonus(s, lines, cost)
     # a section may stay off the map (cost UNASSIGNED) rather than fill a far line, and a
     # line may stay empty: drawn as a road without a count

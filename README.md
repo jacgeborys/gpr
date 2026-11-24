@@ -69,18 +69,38 @@ Current method (`set GPR_YEAR=2010`):
 1. `01_parse_gpr2010.py` — Tablica 1 + 2 PDFs (`data/raw/2010/`) → `output/gpr2010_sections.csv`
    (1,792 sections, all with SDR; counting points located by 2025 km or by locality name).
 2. `03_pdf_sections2010.py` — geometry from GDDKiA's own `Mapa_SDR2010.pdf`: every section is one
-   grey vector line (1,793), georeferenced by ICP against BDOT (median 82 m). Lines are tied to
-   sections by a Hungarian assignment on: the **SDR labels printed on the map**
-   (`pdf_labels2010.py`: glyph fragments → digits by template matching; 1,004 exact reads,
-   244 one digit off), counting-point distance, length, green band width, and continuity along
-   each road (Viterbi over touching lines). 80% of counting points land on their own line.
+   grey vector line (1,787 on the main map; the Górnośląski inset edge and the legend are left
+   out), georeferenced by ICP against BDOT (median 82 m). The parsed PDF is cached in
+   `output/pdf2010_cache.pkl` (delete it after changing the PDF parsing; rebuild ~3 min).
+   - **Labels** (`pdf_labels2010.py`): glyph outlines → clusters by outline gap → every straight
+     run of glyphs is read (touching digits are cut, digits classified by nearest neighbours in
+     `data/label_templates2010.npz`, a bank of digit rasters taken from the map's own confident
+     reads), and decoded against the SDR values of sections whose counting point is near; the
+     longest runs that read as a table value win. 1,441 labels, ~1,410 exact on a line.
+   - **Counting points fixed from the map**: a section whose (unique) value is read on the map
+     gets the label position when it had no point or a locality point > 25 km away (a namesake
+     village); else from its km-neighbours (also replaces locality points > 60 km off).
+   - **Assignment** (Hungarian) on counting-point distance, length, green band width, labels
+     (exact read near the point −120; a line read as a unique value is reserved for it, +80 for
+     others; a far read counts if a km-neighbour's value is read on a touching line) and
+     continuity (Viterbi over touching lines). A section may stay off the map (cost 40) rather
+     than fill a far line; then a **repair** pass puts such sections on empty lines touching
+     their km-neighbour's line. Empty lines are drawn as roads without a count.
 3. `06_render_cartogram.py` → `output/cartogram_2010_*.png`.
+4. `08_suspects2010.py` — QA: lists suspects (`output/qa_suspects2010.csv`: label read on the line
+   ≥ 2 edits from its value; >2× jump against all same-road neighbours; short high line) and
+   draws `output/debug2010/NNN_<section>.png` (left: GDDKiA map crop, right: ours with values and
+   label reads). `--at lon,lat ...` draws ad-hoc windows (`at_N.png`).
 
-Known errors to fix: isolated patches where the label was not read (e.g. a too-thick piece on
-DK82 near Wisznice, DK2 east of Warsaw, a dot south of Bydgoszcz). Ideas: improve label
-grouping (only 1,390 of ~1,790 labels assembled), check each line's value against its read label
-and flag disagreements. The earlier BDOT-based 2010 attempts (`02_build_graph.py` past_network /
-pdf_network, steps 03/03b) are kept but give worse results.
+Status (2026-11-24): fixed DK63 near Wisznice, the Wrocław value in Inowrocław, DK8 sections
+dropped in Marki/Jędrzejów/Kozienice, S7 on DK8 at Mszczonów, Dębica, Sieradz, Oleśnica. The 21
+remaining suspects were checked by eye: label flags are misreads in crowded junctions with a
+correct value, jump/short-high flags are real short town crossings (PRZEJŚCIE). ~21 sections
+stay off the map and ~16 lines are drawn grey, mostly around Warsaw, Poznań and Szczecin where
+the main map prints no labels (they are only in the insets). Next idea: read the three insets
+(own georeference) to place those.
+The earlier BDOT-based 2010 attempts (`02_build_graph.py` past_network / pdf_network, steps
+03/03b) are kept but give worse results.
 
 ## Outputs (`output/`)
 
