@@ -10,6 +10,7 @@ import os
 # which GPR round the pipeline works on (2025 by default); `set GPR_YEAR=2010` runs the
 # 2010 round through the same steps (01_parse_gpr2010.py instead of 01_parse_gpr.py)
 YEAR = int(os.environ.get("GPR_YEAR", 2025))
+AUTHOR = "Jacek Geborys"   # credited in the map footer
 GPR_TAB01 = RAW / "Tab01_25_dk_KRAJ_20260414.xlsx"   # section list + counting points
 GPR_TAB02 = RAW / "Tab02_25_dk_KRAJ_20260414.xlsx"   # SDRR by vehicle class
 
