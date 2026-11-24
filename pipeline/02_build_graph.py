@@ -33,6 +33,7 @@ DANGLE_AS_M = 1000.0
 DANGLE_TO_AS_M = 600.0
 MAX_EDGE_M = 250.0
 DW_NEAR_M = 6_000.0
+PDF_CORRIDOR_M = 900.0   # past years: BDOT pieces this close to the year's GDDKiA map lines
 POINT_ON_M = 300.0   # past years: an A/S chain with a counting point this close existed then   # past years: regional roads this close to a counting point join the graph
 OSM_BUFFER_M = 40.0   # OSM within this of a BDOT national road = BDOT already has it
 OSM_MIN_M = 60.0      # shorter OSM leftovers are carriageway/vertex noise
@@ -121,6 +122,43 @@ def osm_patches(skdr, G, node_xy, add_edge, next_id):
     return patches
 
 
+def pdf_network(skdr, pdf_path):
+    """The network of a past GPR round = today's national + regional roads (real BDOT10k
+    geometry) that lie along that round's own map (GDDKiA's PDF map, georeferenced; see
+    03_pdf_sections2010.py): a piece is kept if its middle is within PDF_CORRIDOR_M of a map line."""
+    import pandas as pd
+    from shapely.strtree import STRtree
+    pdf = gpd.read_file(pdf_path).to_crs(2180)
+    dw = gpd.read_file(config.DW_GPKG).to_crs(2180).explode(index_parts=False)
+    dw = dw[dw.geometry.geom_type == "LineString"]
+    num = dw["NUMER_DROG"].fillna("").astype(str).str.split(r"[|;,\s]+").str[0].str.strip()
+    dw = gpd.GeoDataFrame(dict(NUMER_DROG=("DW" + num).where(num != "", None),
+                               KAT_ISTNIE="eksploatowany", geometry=dw.geometry.values), crs=2180)
+    allr = gpd.GeoDataFrame(pd.concat([skdr, dw], ignore_index=True), crs=2180)
+    tree = STRtree(list(pdf.geometry))
+    mids = allr.geometry.interpolate(0.5, normalized=True)
+    keep = np.zeros(len(allr), bool)
+    for k, q in enumerate(mids):
+        hits = tree.query(q.buffer(PDF_CORRIDOR_M))
+        keep[k] = any(pdf.geometry.iloc[h].distance(q) <= PDF_CORRIDOR_M for h in hits)
+    # the map draws nothing inside cities GPR does not count: keep all roads there (else the
+    # network breaks at every city)
+    if config.OSM_GPKG.exists():
+        try:
+            city = gpd.read_file(config.OSM_GPKG, layer="cities").to_crs(2180)
+            cu = city.geometry.buffer(1500).unary_union
+            in_city = mids.within(cu).values
+            print(f"+ roads inside cities with powiat rights: {int((in_city & ~keep).sum()):,} pieces")
+            keep |= in_city
+        except Exception as e:
+            print("no city layer:", e)
+    out = allr[keep].copy()
+    out["KAT_ISTNIE"] = "eksploatowany"
+    print(f"{config.YEAR} network from the GDDKiA map: {keep.sum():,} BDOT pieces kept "
+          f"({out.length.sum() / 1000:,.0f} km; map lines {pdf.length.sum() / 1000:,.0f} km)")
+    return out
+
+
 def past_network(skdr):
     """The network of a past GPR round, derived from today's: motorways / expressways exist
     only where that round has A/S sections (their km ranges, located through the 2025 sections
@@ -184,7 +222,8 @@ def main():
     skdr = skdr.explode(index_parts=False).reset_index(drop=True)
     skdr = skdr[skdr.geometry.geom_type == "LineString"].copy()
     if config.YEAR != 2025:
-        skdr = past_network(skdr)
+        pdf_net = config.DATA / f"pdf{config.YEAR}_network.gpkg"
+        skdr = pdf_network(skdr, pdf_net) if pdf_net.exists() else past_network(skdr)
     skdr["tokens"] = skdr["NUMER_DROG"].map(skdr_tokens)
     if "KAT_ISTNIE" in skdr.columns:
         oper = skdr["KAT_ISTNIE"].fillna("eksploatowany") == "eksploatowany"
