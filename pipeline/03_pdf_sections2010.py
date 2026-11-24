@@ -29,7 +29,8 @@ import config
 
 GREY = ((0.5, 0.5, 0.5), 2.87)
 GREEN = (0.645, 0.992, 0.629)
-MAIN_X = 1150          # page x left of this = the three insets
+MAIN_X = 1150
+TOUCH_M = 600          # two map lines whose ends are this close are consecutive          # page x left of this = the three insets
 
 
 def densify(a, step):
@@ -114,6 +115,67 @@ def fit_affine(lines):
     return A
 
 
+def chain_bonus(s, lines, cost, touch_m=TOUCH_M, k_cand=40, jump=8.0, bonus=10.0):
+    """Continuity: sections with consecutive km on one road must lie on lines that touch on the
+    map. For each run of consecutive sections, pick the best sequence of lines (Viterbi over the
+    k_cand cheapest lines per section; a jump between non-touching lines costs `jump`), then
+    make the chosen pairs `bonus` cheaper for the global assignment."""
+    from scipy.spatial import cKDTree
+    ends = np.array([c for ln in lines for c in (ln.coords[0][:2], ln.coords[-1][:2])])
+    tr = cKDTree(ends)
+    touch = [set() for _ in lines]
+    for a, b in tr.query_pairs(touch_m):
+        i, j = a // 2, b // 2
+        if i != j:
+            touch[i].add(j)
+            touch[j].add(i)
+    order = s.reset_index().sort_values(["system", "pik_pocz"])
+    runs, cur, prev = [], [], None
+    for r in order.itertuples():
+        if prev is not None and (r.system != prev.system or r.pik_pocz - prev.pik_konc > 1.0):
+            runs.append(cur)
+            cur = []
+        cur.append(r.index)
+        prev = r
+    runs.append(cur)
+    out = cost.copy()
+    n_pref = 0
+    for run in runs:
+        if len(run) < 2:
+            continue
+        cands = [list(np.argsort(cost[i])[:k_cand]) for i in run]
+        # include lines touching the previous section's candidates
+        best = [{j: (cost[run[0], j], None) for j in cands[0]}]
+        for t_ in range(1, len(run)):
+            i = run[t_]
+            cand = set(cands[t_])
+            for j in list(best[-1])[:k_cand]:
+                cand |= touch[j]
+            layer = {}
+            for j in cand:
+                u = cost[i, j]
+                bp, bc = None, np.inf
+                for pj, (pc, _) in best[-1].items():
+                    if pj == j:
+                        continue
+                    c = pc + (0.0 if j in touch[pj] else jump)
+                    if c < bc:
+                        bc, bp = c, pj
+                layer[j] = (bc + u, bp)
+            best.append(layer)
+        j = min(best[-1], key=lambda x: best[-1][x][0])
+        seq = [j]
+        for layer in reversed(best[1:]):
+            j = layer[j][1]
+            seq.append(j)
+        seq = seq[::-1]
+        for i, j in zip(run, seq):
+            out[i, j] -= bonus
+            n_pref += 1
+    print(f"continuity: {len(runs)} runs, {n_pref} section→line preferences from chains")
+    return out
+
+
 def main():
     raw, green, size = page_lines()
     A = fit_affine(raw)
@@ -147,6 +209,7 @@ def main():
     cost = (1.5 * dist + 3 * np.abs(np.log(np.maximum(L, 0.1)[None, :] / want))
             + 2 * np.abs(np.log(sdr_est[None, :] / sdr)))
     cost = np.nan_to_num(cost, nan=1e3, posinf=1e3)
+    cost = chain_bonus(s, lines, cost)
     rows, cols = linear_sum_assignment(cost)
     s["line"] = -1
     s.loc[rows, "line"] = cols
