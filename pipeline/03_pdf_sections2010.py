@@ -30,7 +30,9 @@ import config
 GREY = ((0.5, 0.5, 0.5), 2.87)
 GREEN = (0.645, 0.992, 0.629)
 MAIN_X = 1150
-TOUCH_M = 600          # two map lines whose ends are this close are consecutive          # page x left of this = the three insets
+TOUCH_M = 600
+LABEL_CLUSTERS = {0: "7", 2: "9", 3: "5", 4: "0", 6: "6", 8: "8", 9: "2", 11: "3", 12: "2", 14: "2"}
+LABEL_ONEFOUR = 10       # k-means cluster holding both 1 and 4 (split by ink)          # two map lines whose ends are this close are consecutive          # page x left of this = the three insets
 
 
 def densify(a, step):
@@ -113,6 +115,46 @@ def fit_affine(lines):
     d, _ = tree.query(X @ A.T)
     print(f"PDF georeferenced: median residual {np.median(d):.0f} m, p75 {np.percentile(d, 75):.0f} m")
     return A
+
+
+def label_bonus(s, raw, cost, exact_bonus=60.0, near_bonus=20.0, max_pt=14.0):
+    """The SDR value printed on each band: a line whose label reads as a section's SDR (exact
+    match with the 2010 table) is that section's line; a near-miss reading (one digit off)
+    gives a smaller bonus."""
+    import pdf_labels2010 as pl
+    vals = s.sdrr_total.dropna().astype(int).astype(str)
+    reads = pl.read_labels(config.GPR2010_DIR / "Mapa_SDR2010.pdf", set(vals),
+                           LABEL_CLUSTERS, LABEL_ONEFOUR)
+    from shapely.geometry import LineString as _LS, Point as _P
+    from shapely.strtree import STRtree as _T
+    rl = [_LS(g) for g in raw]
+    tr = _T(rl)
+    by_val = {}
+    for i, v in zip(s.index, s.sdrr_total):
+        if v == v:
+            by_val.setdefault(str(int(v)), []).append(i)
+    pos = {k: n for n, k in enumerate(s.index)}
+    n_ex = n_near = 0
+    out = cost.copy()
+    for x, y, txt, exact in reads:
+        q = _P(x, y)
+        hits = [j for j in tr.query(q.buffer(max_pt)) if rl[j].distance(q) <= max_pt]
+        if not hits:
+            continue
+        j = min(hits, key=lambda j: rl[j].distance(q))
+        if exact:
+            for i in by_val.get(txt, []):
+                out[pos[i], j] -= exact_bonus
+            n_ex += 1
+        else:
+            near = [v for v in by_val if len(v) == len(txt) and
+                    sum(a != b for a, b in zip(v, txt)) == 1]
+            for v in near:
+                for i in by_val[v]:
+                    out[pos[i], j] -= near_bonus
+            n_near += bool(near)
+    print(f"map labels read: {len(reads)}; exact SDR on a line: {n_ex}, one digit off: {n_near}")
+    return out
 
 
 def chain_bonus(s, lines, cost, touch_m=TOUCH_M, k_cand=40, jump=8.0, bonus=10.0):
@@ -209,6 +251,7 @@ def main():
     cost = (1.5 * dist + 3 * np.abs(np.log(np.maximum(L, 0.1)[None, :] / want))
             + 2 * np.abs(np.log(sdr_est[None, :] / sdr)))
     cost = np.nan_to_num(cost, nan=1e3, posinf=1e3)
+    cost = label_bonus(s, raw, cost)
     cost = chain_bonus(s, lines, cost)
     rows, cols = linear_sum_assignment(cost)
     s["line"] = -1
