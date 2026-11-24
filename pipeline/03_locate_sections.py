@@ -46,8 +46,14 @@ EDGE_NODES = {d["eid"]: (u, v) for u, v, d in G.edges(data=True)}
 
 # ── routing helpers ───────────────────────────────────────────────────────────────
 
+# multiplier for BDOT 'w budowie' edges; main() sets it to 1 for runs made only of roads
+# opened in/after 2025 (status opened_after_count / pending_2026): BDOT still shows those
+# as under construction, and the old road alongside must not take their place
+NONOP = {"mult": config.COST_NOT_OPERATIONAL}
+
+
 def edge_mult(d, road, number):
-    k = 1.0 if d.get("oper", True) else config.COST_NOT_OPERATIONAL
+    k = 1.0 if d.get("oper", True) else NONOP["mult"]
     if road in d["tok"]:
         return k * config.COST_SAME_ROAD
     if number in d["num"]:
@@ -152,6 +158,19 @@ def extend(a, d_target, ref_xy, road, number):
     return [XY[a]], "none"
 
 
+_PTS = pd.read_csv(config.SECTIONS_CSV).dropna(subset=["x"])
+_PT_TREE = STRtree([Point(x, y) for x, y in zip(_PTS.x, _PTS.y)])
+_PT_SEC = _PTS.numer_odcinka.values
+
+
+def foreign_points(coords, own, radius=60):
+    """Counting points of sections other than *own* lying on the line."""
+    if len(coords) < 2:
+        return 0
+    return sum(1 for j in _PT_TREE.query(LineString(coords).buffer(radius))
+               if _PT_SEC[j] not in own)
+
+
 # ── run placement ─────────────────────────────────────────────────────────────────
 
 def place_run(run, anchors, road, number):
@@ -200,10 +219,26 @@ def place_run(run, anchors, road, number):
             ctrl_m.append(ctrl_m[-1] + seg_len)
         s_first = clamp(lk[0][2]) if lk else 1.0
         s_last = clamp(lk[-1][2]) if lk else 1.0
-        ref0 = XY[ch[1][1]] if len(ch) > 1 else None
-        before, f0 = extend(ch[0][1], (ch[0][0] - lo) * 1000 * s_first, ref0, road, number)
-        ref1 = XY[ch[-2][1]] if len(ch) > 1 else (before[-1] if len(before) > 1 else None)
-        after, f1 = extend(ch[-1][1], (hi - ch[-1][0]) * 1000 * s_last, ref1, road, number)
+        d0, d1 = (ch[0][0] - lo) * 1000 * s_first, (hi - ch[-1][0]) * 1000 * s_last
+        if len(ch) > 1:
+            before, f0 = extend(ch[0][1], d0, XY[ch[1][1]], road, number)
+            after, f1 = extend(ch[-1][1], d1, XY[ch[-2][1]], road, number)
+        else:
+            # one anchor: the direction is not known. Try both (the longer side chosen
+            # freely, the other heading away from it, and vice versa) and keep the one that
+            # runs over fewer counting points of OTHER sections (S10e at Bydgoszcz went
+            # up the S5 instead of along the shared S5/S10)
+            own = set(run.numer_odcinka)
+            options = []
+            for first in ("after", "before"):
+                if first == "before":
+                    b, fb = extend(ch[0][1], d0, None, road, number)
+                    a, fa = extend(ch[-1][1], d1, b[-1] if len(b) > 1 else None, road, number)
+                else:
+                    a, fa = extend(ch[-1][1], d1, None, road, number)
+                    b, fb = extend(ch[0][1], d0, a[-1] if len(a) > 1 else None, road, number)
+                options.append((foreign_points(b[::-1] + a[1:], own), b, fb, a, fa))
+            _, before, f0, after, f1 = min(options, key=lambda o: o[0])
         coords = before[::-1] + coords_mid[1:] + after[1:]
         if len(coords) < 2:
             continue
@@ -398,7 +433,11 @@ def main():
         if not anchors:
             pending.append(rid)
             continue
+        new = sec_by_id.loc[run.numer_odcinka, "status"].isin(
+            ["opened_after_count", "pending_2026"]).all()
+        NONOP["mult"] = 1.0 if new else config.COST_NOT_OPERATIONAL
         geoms, fl = place_run(run, anchors, road, number)
+        NONOP["mult"] = config.COST_NOT_OPERATIONAL
         if not geoms:
             pending.append(rid)
             continue

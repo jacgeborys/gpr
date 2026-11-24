@@ -7,20 +7,20 @@
 | sections in GPR | 2424 (18,364 km) |
 | sections placed | 2424 (18,364 km) |
 | with SDRR | 2402 |
-| length within ±20–25% of GPR length | 2353 sections, 18,065 km (98.4%) |
+| length within ±20–25% of GPR length | 2355 sections, 18,081 km (98.5%) |
 | median len_ratio | 1.000 |
 
-Placement: strict 2352, attached+strict 60, loose+strict 6, loose 6
+Placement: strict 2352, attached+strict 61, loose 6, loose+strict 5
 
 ## QA flags
 
 | flag | sections | meaning |
 |---|---|---|
-| gap_closed | 77 | a break to the next section of the road was bridged (half of it added here) |
-| scale | 56 | km between counting points disagrees with route length by >25–33% |
+| gap_closed | 71 | a break to the next section of the road was bridged (half of it added here) |
+| scale | 57 | km between counting points disagrees with route length by >25–33% |
 | foreign | 26 | extension had to follow a road with a different number |
 | chain_break | 12 | route between counting points broken (missing link in BDOT10k); run split |
-| clipped | 10 | road ended before the section's km ran out |
+| clipped | 8 | road ended before the section's km ran out |
 | none | 1 | extension found nothing to follow |
 
 ## Status (from GPR remarks)
@@ -37,11 +37,11 @@ Placement: strict 2352, attached+strict 60, loose+strict 6, loose 6
 
 | metric | value |
 |---|---|
-| nodes | 2896 |
-| links (counted / uncounted) | 2985 / 481 |
-| uncounted link km | 1,614 |
-| connected components | 4 (largest 99.6%) |
-| traffic work | 282.5 M veh-km/day |
+| nodes | 2845 |
+| links (counted / uncounted) | 2897 / 464 |
+| uncounted link km | 1,533 |
+| connected components | 5 (largest 99.4%) |
+| traffic work | 280.1 M veh-km/day |
 
 ## Busiest sections
 
@@ -60,21 +60,21 @@ Placement: strict 2352, attached+strict 60, loose+strict 6, loose 6
 
 ## Visible gaps
 
-74 uncovered stretches between sections of the same road (337 km); 21 next to a city-limit section (city-managed, not counted by GPR) → `qa_gaps.csv`. Largest others:
+74 uncovered stretches between sections of the same road (302 km); 19 next to a city-limit section (city-managed, not counted by GPR) → `qa_gaps.csv`. Largest others:
 
 | road | km | between |
 |---|---|---|
-| 8 | 14.24 | SZTABIN /OBWODNICA (DOMURATY)/ - W. AUGUSTÓW /DK16, DW665/ / SUCHOWOLA /DW670/ - SZTABIN /OBWODNICA (DOMURATY)/ |
-| 8 | 14.23 | KORYCIN /UL. BROWARNA (DW671)/ - SUCHOWOLA /DW670/ / KORYCIN /UL. BROWARNA (DW671)/ - SUCHOWOLA /DW670/ |
-| 8 | 9.75 | KORYCIN /UL. BROWARNA (DW671)/ - SUCHOWOLA /DW670/ / KORYCIN /UL. BROWARNA (DW671)/ - SUCHOWOLA /DW670/ |
 | 50 | 7.52 | GRÓJEC /UL. POŚWIĘTNE/ - CHYNÓW / CHYNÓW - DĘBÓWKA /UL. PROSTA (DW683)/ |
-| 72 | 6.62 | ŻDŻARY /A2/ - TULISZKÓW /PL. WOLNOŚCI (DW443)/ / TULISZKÓW /PL. WOLNOŚCI (DW443)/ - TUREK /AL. JANA PAWŁA II (DW470)/ |
+| 12 | 6.03 | GOSTYŃ /OBWODNICA (W. PIASKI)/ - STRUMIANY /DW437/ / STRUMIANY /DW437/ - BOREK WLKP. /OBWODNICA (UL. GŁOSINY)/ |
+| 72 | 5.36 | ŻDŻARY /A2/ - TULISZKÓW /PL. WOLNOŚCI (DW443)/ / TULISZKÓW /PL. WOLNOŚCI (DW443)/ - TUREK /AL. JANA PAWŁA II (DW470)/ |
 | 42 | 5.23 | SKARŻYSKO-KAMIENNA /UL. LEGIONÓW/ - WĄCHOCK /OBWODNICA (UL. KIELECKA)/ / WĄCHOCK /OBWODNICA 2: UL. KIELECKA - WYGODA/ |
-| 12 | 5.04 | BOREK WLKP. /OBWODNICA (SKOKÓWKO)/ - JAROCIN /UL. POWSTAŃCÓW WLKP./ / JAROCIN /PRZEJŚCIE 1: AL. NIEPODLEGŁOŚCI - UL. WROCŁAWSKA (DK15)/ |
+| 7 | 4.43 | PRZYBOROWICE /DW571/ - W. ZAKROCZYM / PRZYBOROWICE /DW571/ - W. ZAKROCZYM |
 | 25 | 4.41 | CZŁUCHÓW /UL. PLANTOWA (DW188)/ - ZAMARTE /DW212/ / CZŁUCHÓW /UL. PLANTOWA (DW188)/ - ZAMARTE /DW212/ |
-| 9 | 4.13 | OPATÓW /UL. 1 MAJA (DK74)/ - LIPNIK /DK77/ / OSTROWIEC ŚW. /OBWODNICA (UL. OPATOWSKA)/ - OPATÓW /OBWODNICA/ |
+| 31 | 4.12 | GRYFINO /OBWODNICA 1: UL. POMORSKA - RONDO POŚREDNIE (DW120)/ / GRYFINO /OBWODNICA (RONDO KOŃCOWE)/ - PNIEWO /UL. GRYFIŃSKA (DW121)/ |
 | 60 | 3.96 | DROBIN /UL. PŁOŃSKA (DK10)/ - GLINOJECK /DK7/ / DROBIN /UL. PŁOŃSKA (DK10)/ - GLINOJECK /DK7/ |
-| 65 | 3.78 | GR. PAŃSTWA /GOŁDAP/ - GOŁDAP /OBWODNICA (DG137524N)/ / KOWALE OLECKIE /UL. FILIPOWSKA (DW652)/ - OLECKO /OBWODNICA (DW653)/ |
 | S8 | 3.67 | W. RAWA MAZ. PŁD. /UL. KATOWICKA (DW726)/ - W. RAWA MAZ. PŁN. /DK72, DW725/ / W. RAWA MAZ. PŁD. /UL. KATOWICKA (DW726)/ - W. RAWA MAZ. PŁN. /DK72, DW725/ |
+| 9 | 3.46 | OPATÓW /UL. 1 MAJA (DK74)/ - LIPNIK /DK77/ / OSTROWIEC ŚW. /OBWODNICA (UL. OPATOWSKA)/ - OPATÓW /OBWODNICA/ |
+| 51 | 3.33 | LIDZBARK WARM. /UL. OLSZTYŃSKA (DW511)/ - DOBRE MIASTO /DW507/ / LIDZBARK WARM. /UL. OLSZTYŃSKA (DW511)/ - DOBRE MIASTO /DW507/ |
+| 42 | 3.18 | WOŁCZYN /UL. PRZEMYSŁOWA/ - KLUCZBORK /OBWODNICA (DK42, DK45)/ / KLUCZBORK /PRZEJŚCIE: OBWODNICA (DK42) - (DK11)/ |
 
-185 sections to review → `qa_sections_to_review.csv`
+180 sections to review → `qa_sections_to_review.csv`

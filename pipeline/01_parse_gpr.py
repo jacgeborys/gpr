@@ -55,6 +55,7 @@ def status(row):
     return "measured"
 
 
+PK_TOLERANCE_KM = 1.0
 SIDE_SPLIT_M = 1000  # right/left points further apart than this are two different places
 
 
@@ -131,10 +132,14 @@ def main():
         if not (len(systems) == len(p0s) == len(p1s)):
             print(f"  ! {r['numer_odcinka']}: cannot align systems {systems} with chainage")
             continue
-        anchored = False
+        # anchor piece: the one whose km range holds the counting point's km; failing that,
+        # the nearest one within PK_TOLERANCE_KM (some points sit just past the section end,
+        # e.g. S19 Bielsk Podl. Zach.–Boćki: point at km 122.1, section starts at 122.731)
+        gap = [max(a - r["pk"], r["pk"] - b, 0.0) if pd.notna(r["pk"]) and pd.notna(a)
+               and pd.notna(b) else np.inf for a, b in zip(p0s, p1s)]
+        best = int(np.argmin(gap)) if gap and min(gap) <= PK_TOLERANCE_KM else -1
         for k, (sy, a, b) in enumerate(zip(systems, p0s, p1s)):
-            is_anchor = (not anchored and pd.notna(r["pk"]) and a - 0.01 <= r["pk"] <= b + 0.01)
-            anchored |= is_anchor
+            is_anchor = k == best
             road, num = system_base(sy)
             pieces.append(dict(numer_odcinka=r["numer_odcinka"], part=k, system=sy, road=road,
                                number=num, p0=a, p1=b, anchor=is_anchor))

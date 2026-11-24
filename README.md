@@ -14,7 +14,7 @@ _Updated 2026-11-24 (gap fixes, tighter map frame)_
   by its own chainage (km). The old approach (`legacy/`) cut the network first and gave
   each piece the nearest counting point's value. In that version **369 sections (≈2,100 km)
   never showed their own value**: they took their neighbour's.
-- **All 2,424 sections placed (18,364 km)**. 98.4% of km have a geometry length within
+- **All 2,424 sections placed (18,364 km)**. 98.5% of km have a geometry length within
   ±20–25% of the official GPR length; median ratio 1.000. Only 56 sections still carry a
   `scale` flag (175 before the long-edge fix below).
 - Roads that were not in operation in 2025:
@@ -42,10 +42,16 @@ _Updated 2026-11-24 (gap fixes, tighter map frame)_
     is added to that section (the S7 link into the S6 at Chwaszczyno). This mostly
     happens where one chainage system hands over to the next. A/S up to 25 km; DK only up to 2 km
     and never next to a city-limit section.
-  - What is left in `qa_gaps.csv` (74 stretches, 337 km): mostly city-managed roads and old
+  - **One-anchor runs try both directions** and keep the one that does not run over other
+    sections' counting points (S10e at Bydgoszcz went up the S5 instead of along S5/S10).
+  - **Counting points up to 1 km outside their section's km range still anchor it**
+    (S19 Bielsk Podl. Zach.–Boćki was drawn the wrong way).
+  - **Roads opened in/after 2025** (`opened_after_count`, `pending_2026`) route freely over
+    BDOT "w budowie" edges, so the new S19 at Bielsk is drawn on the expressway, not on the old
+    DK19 alongside. That old DK19 (Bielsk–Boćki) has no GPR 2025 section at all.
+  - What is left in `qa_gaps.csv` (74 stretches, 302 km): mostly city-managed roads and old
     alignments left behind when a DK moved onto a bypass or an S-road.
-- Model network: 2,896 nodes, 3,466 links (2,985 counted, 481 uncounted ≈1,610 km),
-  99.6% of nodes in one connected component.
+- Model network: 99.4% of nodes in one connected component; 464 uncounted links (≈1,530 km).
 - BDOT10k re-extracted 2026-11-24 with all attributes (92,636 features, 739 under construction).
   Mazowieckie ships its layer in two parts (`*_SKDR_L.shp` + `*_SKDR_L_1.shp`); step 00 reads both.
 - See `output/qa_report.md` for current metrics and `output/qa_sections_to_review.csv`
