@@ -185,14 +185,17 @@ def main():
     voiv = adm[adm.RODZAJ == "województwo"].dissolve(by="NAZWA").reset_index()
     voiv["geometry"] = voiv.buffer(200).buffer(-200).simplify(100)   # close sheet slivers
     country = gpd.GeoDataFrame(geometry=[voiv.unary_union.buffer(200).buffer(-200)], crs=2180)
+    if config.LAND_SHP.exists():
+        # the admin outline includes territorial waters (Gulf of Gdańsk, lagoons): keep its
+        # land borders but cut the coast with a land-only outline (Natural Earth)
+        ne = gpd.read_file(config.LAND_SHP)
+        ne = ne[ne["ADM0_A3"] == "POL"].to_crs(2180)
+        land = ne.unary_union.buffer(2000).intersection(country.unary_union)
+        coast_cut = country.unary_union.difference(ne.unary_union.buffer(300))
+        country = gpd.GeoDataFrame(geometry=[land.difference(coast_cut)], crs=2180)
     if cities is not None and len(cities):
-        # OSM city boundaries of Gdańsk / Gdynia / Szczecin … run far into the sea: land only
-        land = country
-        if config.LAND_SHP.exists():   # the admin outline includes the Gulf of Gdańsk waters
-            ne = gpd.read_file(config.LAND_SHP)
-            ne = ne[ne["ADM0_A3"] == "POL"].to_crs(2180)
-            land = gpd.GeoDataFrame(geometry=[ne.unary_union.buffer(300)], crs=2180)
-        cities = gpd.clip(cities.to_crs(2180), land)
+        # OSM city boundaries of Gdańsk / Gdynia / Szczecin … run into the sea: land only
+        cities = gpd.clip(cities.to_crs(2180), country)
     for theme in THEMES:
         render(theme, sec, ctx, dw, voiv, country, cities)
 
