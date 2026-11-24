@@ -131,7 +131,7 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None):
 
     fig.text(0.025, 0.965, f"Ruch na drogach krajowych {config.YEAR}", fontsize=24,
              color=t["text"], va="top")
-    fig.text(0.025, 0.922, "Średni dobowy ruch roczny (SDRR), pojazdy/dobę · Generalny Pomiar Ruchu "
+    fig.text(0.025, 0.935, "Średni dobowy ruch roczny (SDRR), pojazdy/dobę · Generalny Pomiar Ruchu "
              f"GDDKiA {config.YEAR}", fontsize=11, color=t["text2"], va="top")
 
     # class legend: colour + width of each class (width at the class middle), flat ends
