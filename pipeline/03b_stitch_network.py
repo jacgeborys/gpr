@@ -37,6 +37,8 @@ CONSECUTIVE_M = 30_000   # consecutive sections of one system are joined up to t
 SAME_NAME_M = 5_000      # same-named interchange on different roads
 NEAR_M = 350             # any two section ends this close are one node
 TIE_M = 1_000            # a loose end this close to another section's line is tied onto it
+SUPERSEDED_NEAR_M = 20_000  # old DK N stretch this close to a counted S N section …
+SUPERSEDED_FAR_M = 10_000   # … and this far from any counted DK N section is dropped
 STRAIGHT_M = 30          # shorter joins are drawn straight
 
 D = pickle.load(open(config.GRAPH_PKL, "rb"))
@@ -114,6 +116,32 @@ def as_single(geom):
 def junction_names(name):
     parts = [p.split("/")[0].strip().upper() for p in str(name).split(" - ")]
     return parts if len(parts) == 2 else [None, None]
+
+
+def drop_superseded(unmeasured, sec):
+    """Old national-road alignments replaced by an expressway: an uncounted BDOT stretch of
+    DK N with a counted S N section within SUPERSEDED_NEAR_M and no counted DK N section within
+    SUPERSEDED_FAR_M was downgraded (BDOT lags; e.g. DK61 north of Ostrów Maz. now that S61
+    is open, old DK19 Bielsk Podl.–Boćki). Such stretches are dropped from context and model."""
+    from common import skdr_tokens
+    mids = unmeasured.geometry.interpolate(0.5, normalized=True)
+    keep = np.ones(len(unmeasured), bool)
+    by_road = {r: g.geometry.unary_union for r, g in sec[sec.counted_road.notna()].groupby("counted_road")}
+    for k, (v, p) in enumerate(zip(unmeasured["NUMER_DROG"], mids)):
+        if not skdr_tokens(v):
+            keep[k] = False   # national road without a number: being handed over / downgraded
+            continue
+        for tok in skdr_tokens(v):
+            if tok[:1] in "AS":
+                continue
+            s_geom, dk_geom = by_road.get("S" + tok), by_road.get(tok)
+            if s_geom is not None and s_geom.distance(p) <= SUPERSEDED_NEAR_M and (
+                    dk_geom is None or dk_geom.distance(p) > SUPERSEDED_FAR_M):
+                keep[k] = False
+    dropped = unmeasured[~keep]
+    print(f"uncounted old alignments superseded by an S-road dropped: {len(dropped)} pieces, "
+          f"{dropped.length.sum() / 1000:.0f} km")
+    return unmeasured[keep]
 
 
 def main():
@@ -235,6 +263,8 @@ def main():
         tied += 1
 
     sec["geometry"] = [LineString(coords[i]) for i in sec.index]
+    sec["counted_road"] = sec["road"].where(sec["sdrr_total"].notna() | sec["status"].isin(
+        ["pending_2026", "opened_after_count"]))
     sec["geom_km"] = (sec.length / 1000).round(3)
     sec["len_ratio"] = (sec["geom_km"] / sec["dlugosc_km"]).round(3)
     for i, a in added.items():
@@ -252,7 +282,8 @@ def main():
                     predicate="within")
     unmeasured = skdr[~skdr.index.isin(hit.index)]
     print(f"operational SKDR not covered by any section: {unmeasured.length.sum() / 1000:.0f} km")
-    sec.to_file(config.NETWORK_GPKG, layer="sections", driver="GPKG")
+    unmeasured = drop_superseded(unmeasured, sec)
+    sec.drop(columns="counted_road").to_file(config.NETWORK_GPKG, layer="sections", driver="GPKG")
     gpd.GeoDataFrame(unmeasured, crs=2180).to_file(config.NETWORK_GPKG, layer="skdr_unmeasured",
                                                    driver="GPKG")
     print("saved stitched sections")

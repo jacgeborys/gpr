@@ -16,6 +16,7 @@ SKDR_GPKG = Path(os.environ.get("GPR_SKDR", DATA / "bdot" / "skdr_krajowe.gpkg")
 OSM_PBF = Path(r"D:\QGIS\osm_basemap\pbf\poland-latest.osm.pbf")  # Geofabrik extract
 OSM_GPKG = DATA / "osm" / "osm_main_roads.gpkg"   # from 00b_fetch_osm.py (optional)
 WEZLY_GPKG = Path(r"D:\QGIS\BODT10k\SKDR\skrw_wezly.gpkg")
+DW_GPKG = Path(r"D:\QGIS\BODT10k\SKDR\skdr_wojewodzkie.gpkg")   # regional roads (BDOT10k)
 BOUNDARY_SHP = Path(r"D:\QGIS\BODT10k\granice_admin.shp")
 
 SECTIONS_CSV = OUT / f"gpr{YEAR}_sections.csv"

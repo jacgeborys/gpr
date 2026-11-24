@@ -254,7 +254,11 @@ def place_run(run, anchors, road, number):
                 else:
                     a, fa = extend(ch[-1][1], d1, None, road, number)
                     b, fb = extend(ch[0][1], d0, a[-1] if len(a) > 1 else None, road, number)
-                options.append((foreign_points(b[::-1] + a[1:], own), b, fb, a, fa))
+                # first: how many km the road ran out short of; then: other sections'
+                # counting points run over
+                got = sum(LineString(c).length for c in (a, b) if len(c) > 1)
+                short_km = round(max(d0 + d1 - got, 0) / 1000)
+                options.append(((short_km, foreign_points(b[::-1] + a[1:], own)), b, fb, a, fa))
             _, before, f0, after, f1 = min(options, key=lambda o: o[0])
         coords = before[::-1] + coords_mid[1:] + after[1:]
         if len(coords) < 2:

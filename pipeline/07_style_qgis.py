@@ -69,6 +69,7 @@ STYLES = {
     "sections": line_qml("37,106,191,255", 0.5, dd_width=WIDTH, dd_color=COLOR, order_by='"sdrr_total"'),
     "links": line_qml("37,106,191,255", 0.5, dd_width=WIDTH, dd_color=COLOR, order_by='"sdrr_total"'),
     "skdr_unmeasured": line_qml(config.NO_COUNT_LIGHT, 0.25),
+    "regional_roads": line_qml(config.NO_COUNT_LIGHT, 0.12),
     "skdr_not_operational": line_qml("82,81,78,255", 0.25, dash=True),
 }
 

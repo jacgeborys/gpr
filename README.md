@@ -10,9 +10,8 @@ a **node/link network** with counts attached, ready to seed a national traffic m
 
 _Updated 2026-11-24_
 
-- **All 2,424 GPR sections placed (18,364 km), and the network is continuous**: the model
-  network has 99.5% of its nodes in one component, and 60 dead ends more than 3 km from the
-  border (`qa_dead_ends.csv`, mostly real road ends and uncounted city connectors).
+- **All 2,424 GPR sections placed (18,364 km), and the national network is continuous**
+  (`qa_dead_ends.csv` lists the remaining dead ends).
 - How sections are drawn (details below):
   1. **Placement (step 03)**: each section is placed by its own chainage (km) on a routable graph
      of BDOT10k national roads, patched with **OpenStreetMap** main roads where BDOT has holes
@@ -26,16 +25,26 @@ _Updated 2026-11-24_
   right/left sides kilometres apart; points up to 1 km outside their section; one-anchor runs
   and extensions that turned back; BDOT "w budowie" used as fallback, and freely for roads
   opened in 2025.
-- Roads not open in 2025: BDOT "w budowie" is drawn dashed. GPR `status` marks sections opened
-  after the count (`opened_after_count`) or counted in 2026 (`pending_2026`), drawn dotted.
+- Roads not open in 2025: GPR `status` marks sections opened after the count
+  (`opened_after_count`) or counted in 2026 (`pending_2026`), drawn dotted in the no-data grey.
+  BDOT "w budowie" is no longer drawn (layer `skdr_not_operational` is kept in the GeoPackage).
   Closed OSM ways (`access=no`, `construction`) are never used. **S19 at Boćki**: the S19 section
   ends at Węzeł Boćki (built S19 further south was closed in 2025), and DK19 continues south from
   there (rule: a section is cut where a section of another road starts at the same-named
-  interchange, `qa_flags` `trimmed`).
+  interchange, `qa_flags` `trimmed`). S10 south of Toruń (being widened) is drawn in full.
+- Downgraded old alignments are dropped from the uncounted context and the model: an uncounted
+  DK N stretch with a counted S N section within 20 km and no counted DK N section within 10 km
+  (DK61 north of Ostrów Maz. now that S61 is open, old DK19 Bielsk–Boćki), and national-road
+  pieces BDOT lists without a number (≈250 km).
+- **Regional roads (drogi wojewódzkie)** from BDOT10k (`config.DW_GPKG`, ≈29,700 km) are in
+  the model network as uncounted links (`road` = `DW<number>`, `road_class` = `DW`) and on the
+  map as thin context. GPR 2025 data here covers national roads only, so they have no counts.
 - Map: 9 SDRR colour classes (light: yellow → red → purple; dark: blue → pink → yellow), width ∝ SDRR;
   roads without counts in a grey between the land colour and the lowest class; font
   Bahnschrift. QGIS default styles in the GeoPackage use the same classes.
-- Model network: 2,663 nodes, 3,179 links (2,787 counted, 392 uncounted ≈1,360 km).
+- Model network: 6,704 nodes, 8,484 links (3,296 counted; 5,188 uncounted ≈30,700 km, mostly
+  regional roads); 97.4% of nodes in one component. Dead ends > 3 km from the border: 34 on
+  national roads, 590 on regional roads (they often end in towns).
 
 ## Outputs (`output/`)
 
@@ -46,6 +55,7 @@ _Updated 2026-11-24_
 | ├ `links`, `nodes` | modelling topology (sections split at junctions + uncounted connectors) |
 | ├ `counting_points` | GPR counting stations |
 | ├ `skdr_unmeasured` | operational national roads not covered by a section |
+| ├ `regional_roads` | regional roads (drogi wojewódzkie) merged per road number |
 | └ `skdr_not_operational` | BDOT10k national roads under construction |
 | `links_2025.csv`, `nodes_2025.csv` | the same topology as plain tables (from/to node, SDRR, km) |
 | `cartogram_2025_light.png` / `_dark.png` | rendered flow map |

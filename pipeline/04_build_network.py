@@ -14,7 +14,7 @@ Each link keeps its GPR section id (numer_odcinka), so counts can be used for mo
 calibration; several links may share one section after T-junction splits.
 
 Reads : output/traffic_network_2025.gpkg  layer 'sections'
-Writes: output/traffic_network_2025.gpkg  layers 'nodes', 'links'
+Writes: output/traffic_network_2025.gpkg  layers 'nodes', 'links', 'regional_roads'
         output/links_2025.csv, output/nodes_2025.csv
 """
 from collections import defaultdict
@@ -36,6 +36,8 @@ TJUNCTION_M = 300.0    # a node this close to another section's interior splits 
 END_GUARD_M = 150.0    # ...unless the split point is this close to that section's end
 CARRIAGEWAY_M = 150.0  # unmeasured SKDR this close to a section = its 2nd carriageway/ramp
 INTERCHANGE_M = 1000.0  # A/S crossing counts as a junction if a węzeł is this close
+DW_NODE_M = 60.0       # regional roads: ends / T-junctions merge only this close (towns!)
+DW_OVERLAP_M = 25.0    # regional-road pieces this close to a national road share its alignment
 
 
 def as_line(geom):
@@ -85,26 +87,63 @@ def uncounted_links(sec):
     return ch
 
 
+def regional_links(sec, unc):
+    """Regional roads (drogi wojewódzkie, BDOT10k) as uncounted links: merged per road
+    number into chains; pieces sharing a national road's alignment are dropped.
+    Also written as layer 'regional_roads' for the map."""
+    dw = gpd.read_file(config.DW_GPKG).to_crs(2180).explode(index_parts=False)
+    dw = dw[dw.geometry.geom_type == "LineString"].reset_index(drop=True)
+    nat = gpd.GeoDataFrame(geometry=pd.concat([sec.geometry, unc.geometry]), crs=2180)
+    mids = gpd.GeoDataFrame(geometry=dw.geometry.interpolate(0.5, normalized=True), crs=2180)
+    near = gpd.sjoin_nearest(mids, nat, max_distance=DW_OVERLAP_M)
+    dw = dw[~dw.index.isin(near.index)]
+    num = dw["NUMER_DROG"].fillna("").astype(str).str.split(r"[|;,\s]+").str[0].str.strip()
+    rows = []
+    for n, g in dw.groupby(num):
+        u = g.geometry.unary_union
+        m = linemerge(u) if u.geom_type == "MultiLineString" else u
+        for c in getattr(m, "geoms", [m]):
+            if c.geom_type == "LineString" and c.length >= 50:
+                rows.append(dict(road=f"DW{n}" if n else "DW", geometry=c))
+    ch = gpd.GeoDataFrame(rows, crs=2180)
+    ch["road_class"] = "DW"
+    ch["numer_odcinka"] = None
+    ch["status"] = "regional"
+    ch["dlugosc_km"] = ch["geom_km"] = (ch.length / 1000).round(3)
+    ch[["road", "geometry"]].to_file(config.NETWORK_GPKG, layer="regional_roads", driver="GPKG")
+    return ch
+
+
 def main():
     sec = gpd.read_file(config.NETWORK_GPKG, layer="sections")
     sec["counted"] = True
     unc = uncounted_links(sec)
     unc["counted"] = False
     print(f"uncounted connector chains: {len(unc)}  ({unc.length.sum() / 1000:.0f} km)")
-    sec = gpd.GeoDataFrame(pd.concat([sec, unc], ignore_index=True), crs=2180)
+    dw = regional_links(sec, unc)
+    dw["counted"] = False
+    print(f"regional road chains: {len(dw)}  ({dw.length.sum() / 1000:,.0f} km)")
+    sec = gpd.GeoDataFrame(pd.concat([sec, unc, dw], ignore_index=True), crs=2180)
     lines = [as_line(g) for g in sec.geometry]
     flat = np.array([c for ln in lines for c in (ln.coords[0][:2], ln.coords[-1][:2])])
+    is_dw = (sec["road_class"] == "DW").values
+    end_dw = np.repeat(is_dw, 2)
 
-    # 1. endpoint clusters → nodes
+    # 1. endpoint clusters → nodes (national-road ends within NODE_MERGE_M; anything
+    #    involving a regional road only within DW_NODE_M, so towns do not collapse)
     cl = nx.Graph()
     cl.add_nodes_from(range(len(flat)))
-    cl.add_edges_from(cKDTree(flat).query_pairs(NODE_MERGE_M))
+    ftree = cKDTree(flat)
+    cl.add_edges_from((a, b) for a, b in ftree.query_pairs(NODE_MERGE_M)
+                      if not (end_dw[a] or end_dw[b]))
+    cl.add_edges_from(ftree.query_pairs(DW_NODE_M))
     end_node = np.empty(len(flat), int)
-    node_xy = []
+    node_xy, node_dw = [], []
     for nid, comp in enumerate(nx.connected_components(cl)):
         comp = list(comp)
         end_node[comp] = nid
         node_xy.append(flat[comp].mean(axis=0))
+        node_dw.append(bool(end_dw[comp].all()))
     # 2. mid-section crossings become nodes (reusing a nearby endpoint node if any)
     wez = gpd.read_file(config.WEZLY_GPKG).to_crs(2180)
     wez = wez[wez["KAT_ISTNIE"] == "eksploatowany"]
@@ -116,7 +155,7 @@ def main():
     for i, ln in enumerate(lines):
         for j in tree.query(ln, predicate="intersects"):
             if j <= i or sec.road.iloc[i] == sec.road.iloc[j] or not (
-                    sec.counted.iloc[i] or sec.counted.iloc[j]):
+                    sec.counted.iloc[i] or sec.counted.iloc[j] or is_dw[i] or is_dw[j]):
                 continue
             inter = ln.intersection(lines[j])
             pts = [inter] if inter.geom_type == "Point" else                 [g for g in getattr(inter, "geoms", []) if g.geom_type == "Point"]
@@ -124,9 +163,11 @@ def main():
                 if (is_as[i] or is_as[j]) and not np.isfinite(
                         wez_tree.query((p.x, p.y), distance_upper_bound=INTERCHANGE_M)[0]):
                     continue
-                d, k = end_tree.query((p.x, p.y), distance_upper_bound=NODE_MERGE_M)
+                r = DW_NODE_M if (is_dw[i] or is_dw[j]) else NODE_MERGE_M
+                d, k = end_tree.query((p.x, p.y), distance_upper_bound=r)
                 if not np.isfinite(d):
                     node_xy.append(np.array([p.x, p.y]))
+                    node_dw.append(bool(is_dw[i] or is_dw[j]))
                     n_cross += 1
     node_xy = np.array(node_xy)
 
@@ -135,11 +176,12 @@ def main():
     cuts = defaultdict(dict)  # section idx → {distance along: node}
     for nid, (x, y) in enumerate(node_xy):
         p = Point(x, y)
-        for i in tree.query(p.buffer(TJUNCTION_M)):
+        radius = DW_NODE_M if node_dw[nid] else TJUNCTION_M
+        for i in tree.query(p.buffer(radius)):
             if nid in (end_node[2 * i], end_node[2 * i + 1]):
                 continue
             ln = lines[i]
-            if ln.distance(p) > TJUNCTION_M:
+            if ln.distance(p) > (DW_NODE_M if is_dw[i] else radius):
                 continue
             d = ln.project(p)
             if d < END_GUARD_M or d > ln.length - END_GUARD_M:

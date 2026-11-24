@@ -7,7 +7,7 @@
 | sections in GPR | 2424 (18,364 km) |
 | sections placed | 2424 (18,364 km) |
 | with SDRR | 2402 |
-| length within ±20–25% of GPR length | 2201 sections, 17,386 km (94.7%) |
+| length within ±20–25% of GPR length | 2202 sections, 17,457 km (95.1%) |
 | median len_ratio | 1.003 |
 
 Placement: strict 2352, attached+strict 61, loose 6, loose+strict 5
@@ -16,13 +16,13 @@ Placement: strict 2352, attached+strict 61, loose 6, loose+strict 5
 
 | flag | sections | meaning |
 |---|---|---|
-| stitched | 562 | end extended (along roads, or straight) to meet the next section / node |
-| gap_closed | 76 | a break to the next section of the road was bridged (half of it added here) |
-| clipped | 59 | road ended before the section's km ran out |
+| stitched | 614 | end extended (along roads, or straight) to meet the next section / node |
+| gap_closed | 73 | a break to the next section of the road was bridged (half of it added here) |
 | scale | 56 | km between counting points disagrees with route length by >25–33% |
+| clipped | 50 | road ended before the section's km ran out |
 | foreign | 42 | extension had to follow a road with a different number |
 | chain_break | 12 | route between counting points broken (missing link in BDOT10k); run split |
-| trimmed | 10 | line cut where a section of another road starts at the same-named interchange |
+| trimmed | 9 | line cut where a section of another road starts at the same-named interchange |
 | none | 2 | extension found nothing to follow |
 
 ## Status (from GPR remarks)
@@ -39,11 +39,11 @@ Placement: strict 2352, attached+strict 61, loose 6, loose+strict 5
 
 | metric | value |
 |---|---|
-| nodes | 2663 |
-| links (counted / uncounted) | 2787 / 392 |
-| uncounted link km | 1,361 |
-| connected components | 4 (largest 99.5%) |
-| dead ends > 3 km from the border | 60 → `qa_dead_ends.csv` |
+| nodes | 6704 |
+| links (counted / uncounted) | 3296 / 5188 |
+| uncounted link km | 30,744 |
+| connected components | 63 (largest 97.4%) |
+| dead ends > 3 km from the border: national roads / regional roads | 34 / 590 → `qa_dead_ends.csv` |
 | traffic work | 271.4 M veh-km/day |
 
 ## Busiest sections
@@ -63,7 +63,7 @@ Placement: strict 2352, attached+strict 61, loose 6, loose+strict 5
 
 ## Visible gaps
 
-64 uncovered stretches between sections of the same road (295 km); 21 next to a city-limit section (city-managed, not counted by GPR) → `qa_gaps.csv`. Largest others:
+63 uncovered stretches between sections of the same road (269 km); 20 next to a city-limit section (city-managed, not counted by GPR) → `qa_gaps.csv`. Largest others:
 
 | road | km | between |
 |---|---|---|
@@ -80,4 +80,4 @@ Placement: strict 2352, attached+strict 61, loose 6, loose+strict 5
 | 75 | 0.97 | NIEPOŁOMICE /UL. BATOREGO (DW964)/ - W. TARGOWISKO /A4, DW963/ / NIEPOŁOMICE /UL. BATOREGO (DW964)/ - W. TARGOWISKO /A4, DW963/ |
 | A1 | 0.82 | W. ŻORY /UL. RYBNICKA/ - W. ŚWIERKLANY /UL. ŻORSKA (DW932)/ / W. RYBNIK /UL. ZWYCIĘSTWA (DW925)/ - W. ŻORY /UL. RYBNICKA/ |
 
-690 sections to review → `qa_sections_to_review.csv`
+729 sections to review → `qa_sections_to_review.csv`

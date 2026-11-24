@@ -63,7 +63,7 @@ def segs(geom):
     return [np.asarray(p.coords)[:, :2] for p in parts]
 
 
-def render(theme, sec, ctx, notop, voiv, country):
+def render(theme, sec, ctx, dw, voiv, country):
     t = THEMES[theme]
     # frame = country bounds + small margins (extra on top for the title over the Baltic);
     # the axes fill the whole figure, so Poland fills the frame
@@ -76,12 +76,12 @@ def render(theme, sec, ctx, notop, voiv, country):
     country.plot(ax=ax, color=t["land"], edgecolor="none")
     # internal admin borders omitted: granice_admin pieces do not share edges cleanly
     country.boundary.plot(ax=ax, color=t["border"], linewidth=0.9)
+    if dw is not None and len(dw):   # regional roads: no traffic data, thin context
+        ax.add_collection(LineCollection([s for g in dw.geometry for s in segs(g)],
+                                         colors=t["ctx"], linewidths=0.35, capstyle="round",
+                                         zorder=1.5))
     ax.add_collection(LineCollection([s for g in ctx.geometry for s in segs(g)],
                                      colors=t["ctx"], linewidths=0.9, capstyle="round", zorder=2))
-    if notop is not None and len(notop):
-        ax.add_collection(LineCollection([s for g in notop.geometry for s in segs(g)],
-                                         colors=t["text2"], linewidths=0.6, linestyles=(0, (2, 2)),
-                                         zorder=2))
     nodata = sec[sec.sdrr_total.isna()]
     ax.add_collection(LineCollection([s for g in nodata.geometry for s in segs(g)],
                                      colors=t["ctx"], linewidths=1.0, linestyles=(0, (1, 1.2)),
@@ -129,9 +129,9 @@ def render(theme, sec, ctx, notop, voiv, country):
     # context legend (next to the class legend, over Czechia)
     ctx_h = [Line2D([], [], color=t["ctx"], lw=1.4, solid_capstyle="butt",
                     label="drogi krajowe bez pomiaru GPR\n(głównie odcinki w miastach)")]
-    if notop is not None and len(notop):
-        ctx_h.append(Line2D([], [], color=t["text2"], lw=0.9, ls=(0, (2, 2)),
-                            label="w budowie (BDOT10k)"))
+    if dw is not None and len(dw):
+        ctx_h.append(Line2D([], [], color=t["ctx"], lw=0.5, solid_capstyle="butt",
+                            label="drogi wojewódzkie (bez danych o ruchu)"))
     leg2 = ax.legend(handles=ctx_h, loc="lower left", bbox_to_anchor=(0.175, 0.035),
                      frameon=False, fontsize=9, labelcolor=t["text2"], handlelength=3.4,
                      borderaxespad=0.2)
@@ -149,15 +149,16 @@ def main():
     sec = gpd.read_file(config.NETWORK_GPKG, layer="sections")
     ctx = gpd.read_file(config.NETWORK_GPKG, layer="skdr_unmeasured")
     try:
-        notop = gpd.read_file(config.NETWORK_GPKG, layer="skdr_not_operational")
+        dw = gpd.read_file(config.NETWORK_GPKG, layer="regional_roads")
+        dw["geometry"] = dw.geometry.simplify(20)
     except Exception:
-        notop = None
+        dw = None
     adm = gpd.read_file(config.BOUNDARY_SHP).to_crs(2180)
     voiv = adm[adm.RODZAJ == "województwo"].dissolve(by="NAZWA").reset_index()
     voiv["geometry"] = voiv.buffer(200).buffer(-200).simplify(100)   # close sheet slivers
     country = gpd.GeoDataFrame(geometry=[voiv.unary_union.buffer(200).buffer(-200)], crs=2180)
     for theme in THEMES:
-        render(theme, sec, ctx, notop, voiv, country)
+        render(theme, sec, ctx, dw, voiv, country)
 
 
 if __name__ == "__main__":

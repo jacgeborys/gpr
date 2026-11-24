@@ -102,7 +102,9 @@ def main():
            f"| links (counted / uncounted) | {links.counted.sum()} / {(~links.counted).sum()} |",
            f"| uncounted link km | {links.loc[~links.counted, 'link_km'].sum():,.0f} |",
            f"| connected components | {len(comps)} (largest {comps[0] / g.number_of_nodes():.1%}) |",
-           f"| dead ends > 3 km from the border | {len(dead)} → `qa_dead_ends.csv` |",
+           f"| dead ends > 3 km from the border: national roads / regional roads | "
+           f"{(~dead.roads.fillna('').str.contains('DW')).sum()} / "
+           f"{dead.roads.fillna('').str.contains('DW').sum()} → `qa_dead_ends.csv` |",
            f"| traffic work | {links.vkm_day.sum() / 1e6:,.1f} M veh-km/day |", "",
            "## Busiest sections", "", "| road | section | SDRR |", "|---|---|---|"]
     md += [f"| {r.nr_drogi} | {r.nazwa_odcinka} | {r.sdrr_total:,.0f} |" for r in top.itertuples()]
