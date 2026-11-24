@@ -54,6 +54,8 @@ NONOP = {"mult": config.COST_NOT_OPERATIONAL}
 
 def edge_mult(d, road, number):
     k = 1.0 if d.get("oper", True) else NONOP["mult"]
+    if d.get("osm"):
+        k *= config.COST_OSM
     if road in d["tok"]:
         return k * config.COST_SAME_ROAD
     if number in d["num"]:
@@ -79,7 +81,8 @@ def _snap(pt, road, number, radius, oper):
         if eid not in EDGE_NODES:
             continue
         u, v = EDGE_NODES[eid]
-        if G[u][v].get("oper", True) != oper:
+        # OSM patch edges count as fallback (snapped to only when nothing else is near)
+        if (G[u][v].get("oper", True) and not G[u][v].get("osm", False)) != oper:
             continue
         g = GEOMS[eid]
         dist = g.distance(pt)
@@ -557,6 +560,15 @@ def main():
               f"({other[used].length.sum() / 1000:.0f} km)")
         gpd.GeoDataFrame(other[~used], crs=2180).to_file(
             config.NETWORK_GPKG, layer="skdr_not_operational", driver="GPKG")
+    if D.get("osm_patches") is not None and len(D["osm_patches"]):
+        # OSM pieces (roads BDOT10k lacks) that some section now runs along
+        op = D["osm_patches"]
+        mid = gpd.GeoDataFrame(geometry=op.geometry.interpolate(0.5, normalized=True), crs=2180)
+        hit = gpd.sjoin(mid, gpd.GeoDataFrame(geometry=covered, crs=2180), predicate="within")
+        used = op[op.index.isin(hit.index)]
+        print(f"OSM patches used by sections: {len(used)} ({used.length.sum() / 1000:.0f} km)")
+        gpd.GeoDataFrame(used, crs=2180).to_file(config.NETWORK_GPKG, layer="osm_patches_used",
+                                                 driver="GPKG")
     unplaced.drop(columns="geometry").to_csv(config.OUT / "qa_unplaced_sections.csv", index=False)
     print(f"saved {config.NETWORK_GPKG}")
 

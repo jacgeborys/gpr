@@ -7,6 +7,7 @@ __pycache__/
 
 # large or regenerable data
 data/bdot/
+data/osm/
 output/skdr_graph.pkl
 legacy/output/
 legacy/gpr2025.gpkg

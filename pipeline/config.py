@@ -13,6 +13,8 @@ GPR_TAB02 = RAW / "Tab02_25_dk_KRAJ_20260414.xlsx"   # SDRR by vehicle class
 BDOT_ZIP = Path(r"D:\QGIS\BODT10k\Polska_SHP.zip")
 import os
 SKDR_GPKG = Path(os.environ.get("GPR_SKDR", DATA / "bdot" / "skdr_krajowe.gpkg"))
+OSM_PBF = Path(r"D:\QGIS\osm_basemap\pbf\poland-latest.osm.pbf")  # Geofabrik extract
+OSM_GPKG = DATA / "osm" / "osm_main_roads.gpkg"   # from 00b_fetch_osm.py (optional)
 WEZLY_GPKG = Path(r"D:\QGIS\BODT10k\SKDR\skrw_wezly.gpkg")
 BOUNDARY_SHP = Path(r"D:\QGIS\BODT10k\granice_admin.shp")
 
@@ -33,4 +35,14 @@ COST_OTHER_ROAD = 3.0     # other national road (covers SKDR labelling errors)
 # that GPR counted in 2025 (viaducts, rebuilt carriageways) as under construction, which
 # would otherwise break the line; a counted GPR section is proof the road was open.
 COST_NOT_OPERATIONAL = 2.5  # multiplies the road multiplier above
+COST_OSM = 2.0  # OSM patch edges (roads BDOT10k lacks); multiplies the road multiplier
 SCALE_OK = (0.75, 1.33)   # path length / chainage difference considered plausible
+
+# SDRR colour classes (shared by the map renderer and the QGIS styles): upper bounds of
+# each class (veh/day). Multi-hue sequential ramps generated in OKLCH with evenly falling
+# (light theme) / rising (dark theme) lightness; line width encodes SDRR as well.
+SDRR_BREAKS = [5_000, 10_000, 15_000, 20_000, 30_000, 50_000, 75_000, 100_000]
+SDRR_COLORS_LIGHT = ["#f0d441", "#f2b100", "#ed8d00", "#e46700", "#d4411f",
+                     "#b7263e", "#94194c", "#6c194e", "#481645"]   # yellow → red → deep purple
+SDRR_COLORS_DARK = ["#5d2869", "#852a71", "#ac2f6c", "#d2385b", "#ec5542",
+                    "#fb7929", "#ff9e1c", "#ffc338", "#fce765"]    # purple → red → yellow

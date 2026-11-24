@@ -1,5 +1,6 @@
 """
-06_render_cartogram.py — static traffic flow map (width ∝ SDRR) in light and dark themes.
+06_render_cartogram.py — static traffic flow map in light and dark themes:
+line width ∝ SDRR, colour = SDRR class (config.SDRR_BREAKS / SDRR_COLORS_*), font Bahnschrift.
 
 Reads : output/traffic_network_2025.gpkg, config.BOUNDARY_SHP
 Writes: output/cartogram_2025_light.png, output/cartogram_2025_dark.png
@@ -11,20 +12,18 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib.collections import LineCollection  # noqa: E402
-from matplotlib.colors import LinearSegmentedColormap, Normalize  # noqa: E402
+from matplotlib import font_manager  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 
 import config  # noqa: E402
 
-# single-hue sequential blue ramp (steps 200 → 700); dark theme uses lighter top end
-RAMP_LIGHT = ["#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
-RAMP_DARK = ["#184f95", "#1c5cab", "#2a78d6", "#5598e7", "#86b6ef", "#cde2fb"]
 THEMES = {
     "light": dict(bg="#fcfcfb", land="#f3f2ef", border="#d6d5cf", ctx="#b5b4ac",
-                  text="#0b0b0b", text2="#52514e", ramp=RAMP_LIGHT),
+                  text="#0b0b0b", text2="#52514e", ramp=config.SDRR_COLORS_LIGHT),
     "dark": dict(bg="#1a1a19", land="#232322", border="#3a3a37", ctx="#5c5c57",
-                 text="#f0efec", text2="#c3c2b7", ramp=RAMP_DARK),
+                 text="#f0efec", text2="#c3c2b7", ramp=config.SDRR_COLORS_DARK),
 }
+FONT_FILE = "C:/Windows/Fonts/bahnschrift.ttf"
 SDRR_MAX = 120_000           # width/colour saturate here (a handful of urban A4/S8 links exceed it)
 W_MIN, W_MAX = 0.35, 9.0     # line width in points
 FIG_W = 12.0                 # inches; height follows the country's aspect ratio
@@ -34,6 +33,25 @@ CITIES = {"Warszawa": (21.01, 52.23), "Kraków": (19.94, 50.06), "Łódź": (19.
           "Szczecin": (14.55, 53.43), "Katowice": (19.02, 50.26), "Lublin": (22.57, 51.25),
           "Białystok": (23.16, 53.13), "Rzeszów": (22.00, 50.04), "Bydgoszcz": (18.01, 53.12),
           "Olsztyn": (20.49, 53.78), "Kielce": (20.63, 50.87), "Zielona Góra": (15.51, 51.94)}
+
+
+def use_font():
+    try:
+        font_manager.fontManager.addfont(FONT_FILE)
+        plt.rcParams["font.family"] = font_manager.FontProperties(fname=FONT_FILE).get_name()
+    except (OSError, RuntimeError):
+        print(f"font {FONT_FILE} not found, using the default")
+
+
+def sdrr_class(v):
+    return int(np.searchsorted(config.SDRR_BREAKS, v, side="right"))
+
+
+def class_labels():
+    f = lambda v: f"{v:,.0f}".replace(",", " ")
+    b = config.SDRR_BREAKS
+    return ([f"< {f(b[0])}"] + [f"{f(lo)} – {f(hi)}" for lo, hi in zip(b[:-1], b[1:])]
+            + [f"> {f(b[-1])}"])
 
 
 def width(v):
@@ -47,8 +65,6 @@ def segs(geom):
 
 def render(theme, sec, ctx, notop, voiv, country):
     t = THEMES[theme]
-    cmap = LinearSegmentedColormap.from_list("seq", t["ramp"])
-    norm = Normalize(0, SDRR_MAX)
     # frame = country bounds + small margins (extra on top for the title over the Baltic);
     # the axes fill the whole figure, so Poland fills the frame
     minx, miny, maxx, maxy = country.total_bounds
@@ -76,7 +92,7 @@ def render(theme, sec, ctx, notop, voiv, country):
         for s in segs(g):
             lines.append(s)
             ws.append(width(v))
-            cs.append(cmap(norm(v)))
+            cs.append(t["ramp"][sdrr_class(v)])
     ax.add_collection(LineCollection(lines, linewidths=ws, colors=cs, capstyle="round",
                                      joinstyle="round", zorder=4))
 
@@ -94,24 +110,33 @@ def render(theme, sec, ctx, notop, voiv, country):
     ax.set_aspect("equal")
     ax.axis("off")
 
-    fig.text(0.025, 0.965, f"Ruch na drogach krajowych {config.YEAR}", fontsize=20,
-             fontweight="bold", color=t["text"], va="top")
-    fig.text(0.025, 0.925, "Średni dobowy ruch roczny (SDRR), pojazdy/dobę · Generalny Pomiar Ruchu "
+    fig.text(0.025, 0.965, f"Ruch na drogach krajowych {config.YEAR}", fontsize=24,
+             color=t["text"], va="top")
+    fig.text(0.025, 0.922, "Średni dobowy ruch roczny (SDRR), pojazdy/dobę · Generalny Pomiar Ruchu "
              f"GDDKiA {config.YEAR}", fontsize=11, color=t["text2"], va="top")
 
-    # width + colour legend (shared encoding)
-    handles = [Line2D([], [], color=cmap(norm(v)), lw=width(v), solid_capstyle="round",
-                      label=f"{v:,.0f}".replace(",", " ")) for v in (5_000, 20_000, 50_000, 100_000)]
-    handles += [Line2D([], [], color=t["text2"], lw=0.8, ls=(0, (1, 1.5)),
-                       label="brak wyniku (oddane XII 2025 / pomiar 2026)"),
-                Line2D([], [], color=t["ctx"], lw=1.2, label="drogi krajowe bez pomiaru GPR (głównie w miastach)")]
-    if notop is not None and len(notop):
-        handles.append(Line2D([], [], color=t["text2"], lw=0.8, ls=(0, (2, 2)),
-                              label="w budowie (BDOT10k)"))
-    leg = ax.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.01, 0.035), frameon=False, fontsize=9,
-                    labelcolor=t["text2"], title="SDRR [poj./dobę]", title_fontsize=10,
-                    handlelength=3.2, borderaxespad=0.2)
+    # class legend: colour + width of each class (width at the class middle), flat ends
+    b = [0] + config.SDRR_BREAKS + [SDRR_MAX]
+    mids = [(lo + hi) / 2 for lo, hi in zip(b[:-1], b[1:])]
+    handles = [Line2D([], [], color=c, lw=width(m), solid_capstyle="butt", label=lab)
+               for c, m, lab in zip(t["ramp"], mids, class_labels())][::-1]
+    leg = ax.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.01, 0.035),
+                    frameon=False, fontsize=9.5, labelcolor=t["text2"],
+                    title="SDRR [pojazdy/dobę]", title_fontsize=11, handlelength=3.4,
+                    borderaxespad=0.2, alignment="left")
     leg.get_title().set_color(t["text"])
+    ax.add_artist(leg)
+    # context legend (next to the class legend, over Czechia)
+    ctx_h = [Line2D([], [], color=t["text2"], lw=0.9, ls=(0, (1, 1.5)), solid_capstyle="butt",
+                    label="brak wyniku (oddane XII 2025 / pomiar 2026)"),
+             Line2D([], [], color=t["ctx"], lw=1.4, solid_capstyle="butt",
+                    label="drogi krajowe bez pomiaru GPR\n(głównie odcinki w miastach)")]
+    if notop is not None and len(notop):
+        ctx_h.append(Line2D([], [], color=t["text2"], lw=0.9, ls=(0, (2, 2)),
+                            label="w budowie (BDOT10k)"))
+    leg2 = ax.legend(handles=ctx_h, loc="lower left", bbox_to_anchor=(0.175, 0.035),
+                     frameon=False, fontsize=9, labelcolor=t["text2"], handlelength=3.4,
+                     borderaxespad=0.2)
     fig.text(0.025, 0.015, "Dane: GDDKiA GPR 2025, BDOT10k (GUGiK) · geometria odcinków: "
              "kilometraż GPR na sieci BDOT10k", fontsize=7.5, color=t["text2"], ha="left")
     out = config.OUT / f"cartogram_{config.YEAR}_{theme}.png"
@@ -122,6 +147,7 @@ def render(theme, sec, ctx, notop, voiv, country):
 
 def main():
     import matplotlib.patheffects  # noqa: F401
+    use_font()
     sec = gpd.read_file(config.NETWORK_GPKG, layer="sections")
     ctx = gpd.read_file(config.NETWORK_GPKG, layer="skdr_unmeasured")
     try:

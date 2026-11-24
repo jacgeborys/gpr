@@ -2,7 +2,7 @@
 07_style_qgis.py — write QGIS styles (.qml) and embed them as default styles in the
 GeoPackage, so dragging traffic_network_2025.gpkg into QGIS shows the flow map at once.
 
-  sections / links : width ∝ SDRR (mm), single-hue blue ramp, drawn low → high;
+  sections / links : width ∝ SDRR (mm), colour by SDRR class (as the PNG), drawn low → high;
                      no-count links in thin grey
   skdr_unmeasured  : thin grey context
   skdr_not_operational : dashed grey
@@ -15,12 +15,13 @@ import sqlite3
 import config
 
 QGIS_DIR = config.ROOT / "qgis"
-RAMP = ("create_ramp(map(0,'#9ec5f4',0.2,'#6da7ec',0.4,'#3987e5',0.6,'#256abf',"
-        "0.8,'#184f95',1,'#0d366b'))")
 MAX = 120000
 WIDTH = f'coalesce(scale_linear("sdrr_total",0,{MAX},0.15,3.4),0.2)'
-COLOR = (f"CASE WHEN \"sdrr_total\" IS NULL THEN '#a3a29b' "
-         f"ELSE ramp_color({RAMP},scale_linear(\"sdrr_total\",0,{MAX},0,1)) END")
+# same SDRR classes and colours as the PNG map (config.SDRR_BREAKS / SDRR_COLORS_LIGHT)
+COLOR = ("CASE WHEN \"sdrr_total\" IS NULL THEN '#a3a29b' "
+         + " ".join(f"WHEN \"sdrr_total\" < {b} THEN '{c}'"
+                    for b, c in zip(config.SDRR_BREAKS, config.SDRR_COLORS_LIGHT))
+         + f" ELSE '{config.SDRR_COLORS_LIGHT[-1]}' END")
 
 
 def esc(x):
