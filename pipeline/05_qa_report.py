@@ -7,7 +7,8 @@ The key metrics are section-based (not "edges with any value"):
   * how each section was anchored, and QA flags
 
 Reads : output/traffic_network_2025.gpkg
-Writes: output/qa_report.md, output/qa_sections_to_review.csv, output/qa_gaps.csv
+Writes: output/qa_report.md, output/qa_sections_to_review.csv, output/qa_gaps.csv,
+        output/qa_dead_ends.csv
 """
 import geopandas as gpd
 import networkx as nx
@@ -23,6 +24,7 @@ FLAG_HELP = {
     "partial": "one of the section's chainage pieces could not be placed",
     "none": "extension found nothing to follow",
     "gap_closed": "a break to the next section of the road was bridged (half of it added here)",
+    "stitched": "end extended (along roads, or straight) to meet the next section / node",
     "trimmed": "line cut where a section of another road starts at the same-named interchange",
 }
 
@@ -73,6 +75,11 @@ def main():
     review = s[~ok | s.qa_flags.fillna("").ne("")].sort_values("dlugosc_km", ascending=False)
     review.drop(columns="geometry").to_csv(config.OUT / "qa_sections_to_review.csv", index=False)
 
+    nodes = gpd.read_file(config.NETWORK_GPKG, layer="nodes")
+    adm = gpd.read_file(config.BOUNDARY_SHP).to_crs(2180)
+    border = adm[adm.RODZAJ == "województwo"].unary_union.boundary
+    dead = nodes[(nodes.degree == 1) & (nodes.distance(border) > 3000)]
+    dead.drop(columns="geometry").to_csv(config.OUT / "qa_dead_ends.csv", index=False)
     gaps = visible_gaps(s)
     gaps.to_csv(config.OUT / "qa_gaps.csv", index=False)
     top = s.nlargest(10, "sdrr_total")[["nr_drogi", "nazwa_odcinka", "sdrr_total"]]
@@ -95,6 +102,7 @@ def main():
            f"| links (counted / uncounted) | {links.counted.sum()} / {(~links.counted).sum()} |",
            f"| uncounted link km | {links.loc[~links.counted, 'link_km'].sum():,.0f} |",
            f"| connected components | {len(comps)} (largest {comps[0] / g.number_of_nodes():.1%}) |",
+           f"| dead ends > 3 km from the border | {len(dead)} → `qa_dead_ends.csv` |",
            f"| traffic work | {links.vkm_day.sum() / 1e6:,.1f} M veh-km/day |", "",
            "## Busiest sections", "", "| road | section | SDRR |", "|---|---|---|"]
     md += [f"| {r.nr_drogi} | {r.nazwa_odcinka} | {r.sdrr_total:,.0f} |" for r in top.itertuples()]
