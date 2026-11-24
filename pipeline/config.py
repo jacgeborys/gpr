@@ -42,7 +42,9 @@ SCALE_OK = (0.75, 1.33)   # path length / chainage difference considered plausib
 # each class (veh/day). Multi-hue sequential ramps generated in OKLCH with evenly falling
 # (light theme) / rising (dark theme) lightness; line width encodes SDRR as well.
 SDRR_BREAKS = [5_000, 10_000, 15_000, 20_000, 30_000, 50_000, 75_000, 100_000]
-SDRR_COLORS_LIGHT = ["#f0d441", "#f2b100", "#ed8d00", "#e46700", "#d4411f",
-                     "#b7263e", "#94194c", "#6c194e", "#481645"]   # yellow → red → deep purple
-SDRR_COLORS_DARK = ["#5d2869", "#852a71", "#ac2f6c", "#d2385b", "#ec5542",
-                    "#fb7929", "#ff9e1c", "#ffc338", "#fce765"]    # purple → red → yellow
+SDRR_COLORS_LIGHT = ["#ebc831", "#eca600", "#e78400", "#de6000", "#cf3a1f",
+                     "#b3213d", "#91164b", "#6b174e", "#481645"]   # yellow → red → deep purple
+SDRR_COLORS_DARK = ["#4270bd", "#786fd4", "#ad6bda", "#dd6bc8", "#ff73a6",
+                    "#ff8981", "#ffa762", "#ffc75c", "#ffe772"]    # blue → violet → pink → orange → yellow
+# roads without counts sit between the land colour and the lowest class in lightness
+NO_COUNT_LIGHT, NO_COUNT_DARK = "#e2dfda", "#494843"

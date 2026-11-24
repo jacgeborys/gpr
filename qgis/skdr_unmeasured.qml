@@ -7,9 +7,9 @@
      <Option type="Map">
       <Option name="capstyle" value="round" type="QString"/>
       <Option name="joinstyle" value="round" type="QString"/>
-      <Option name="line_color" value="201,200,193,255" type="QString"/>
+      <Option name="line_color" value="#e2dfda" type="QString"/>
       <Option name="line_style" value="solid" type="QString"/>
-      <Option name="line_width" value="0.15" type="QString"/>
+      <Option name="line_width" value="0.25" type="QString"/>
       <Option name="line_width_unit" value="MM" type="QString"/>
      </Option>
      <data_defined_properties><Option type="Map">

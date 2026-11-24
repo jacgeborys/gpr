@@ -18,7 +18,7 @@ QGIS_DIR = config.ROOT / "qgis"
 MAX = 120000
 WIDTH = f'coalesce(scale_linear("sdrr_total",0,{MAX},0.15,3.4),0.2)'
 # same SDRR classes and colours as the PNG map (config.SDRR_BREAKS / SDRR_COLORS_LIGHT)
-COLOR = ("CASE WHEN \"sdrr_total\" IS NULL THEN '#a3a29b' "
+COLOR = (f"CASE WHEN \"sdrr_total\" IS NULL THEN '{config.NO_COUNT_LIGHT}' "
          + " ".join(f"WHEN \"sdrr_total\" < {b} THEN '{c}'"
                     for b, c in zip(config.SDRR_BREAKS, config.SDRR_COLORS_LIGHT))
          + f" ELSE '{config.SDRR_COLORS_LIGHT[-1]}' END")
@@ -68,7 +68,7 @@ def line_qml(color, width_mm, dash=False, dd_width=None, dd_color=None, order_by
 STYLES = {
     "sections": line_qml("37,106,191,255", 0.5, dd_width=WIDTH, dd_color=COLOR, order_by='"sdrr_total"'),
     "links": line_qml("37,106,191,255", 0.5, dd_width=WIDTH, dd_color=COLOR, order_by='"sdrr_total"'),
-    "skdr_unmeasured": line_qml("201,200,193,255", 0.15),
+    "skdr_unmeasured": line_qml(config.NO_COUNT_LIGHT, 0.25),
     "skdr_not_operational": line_qml("82,81,78,255", 0.25, dash=True),
 }
 

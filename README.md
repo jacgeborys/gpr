@@ -32,7 +32,8 @@ _Updated 2026-11-24_
   ends at Węzeł Boćki (built S19 further south was closed in 2025), and DK19 continues south from
   there (rule: a section is cut where a section of another road starts at the same-named
   interchange, `qa_flags` `trimmed`).
-- Map: 9 SDRR colour classes (yellow → red → purple, reversed on dark), width ∝ SDRR, font
+- Map: 9 SDRR colour classes (light: yellow → red → purple; dark: blue → pink → yellow), width ∝ SDRR;
+  roads without counts in a grey between the land colour and the lowest class; font
   Bahnschrift. QGIS default styles in the GeoPackage use the same classes.
 - Model network: 2,663 nodes, 3,179 links (2,787 counted, 392 uncounted ≈1,360 km).
 
