@@ -47,11 +47,11 @@ def render(theme, sec, ctx, notop, voiv, country):
     t = THEMES[theme]
     cmap = LinearSegmentedColormap.from_list("seq", t["ramp"])
     norm = Normalize(0, SDRR_MAX)
-    fig, ax = plt.subplots(figsize=(13, 12.4), dpi=200)
+    fig, ax = plt.subplots(figsize=(13, 11.8), dpi=200)
     fig.patch.set_facecolor(t["bg"])
     ax.set_facecolor(t["bg"])
     country.plot(ax=ax, color=t["land"], edgecolor="none")
-    voiv.boundary.plot(ax=ax, color=t["border"], linewidth=0.5)
+    # internal admin borders omitted: granice_admin pieces do not share edges cleanly
     country.boundary.plot(ax=ax, color=t["border"], linewidth=0.9)
     ax.add_collection(LineCollection([s for g in ctx.geometry for s in segs(g)],
                                      colors=t["ctx"], linewidths=0.35, zorder=2))
