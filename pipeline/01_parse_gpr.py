@@ -59,6 +59,74 @@ PK_TOLERANCE_KM = 1.0
 SIDE_SPLIT_M = 1000  # right/left points further apart than this are two different places
 
 
+ABBREV = {"PŁD": "POŁUDNIE", "PŁN": "PÓŁNOC", "WSCH": "WSCHÓD", "ZACH": "ZACHÓD"}
+
+
+def _tokens(name):
+    name = str(name).split("/")[0].upper().replace("-", " ").replace("(", " ").replace(")", " ")
+    out = []
+    for tok in name.split():
+        abbr = tok.endswith(".")
+        tok = tok.rstrip(".")
+        if tok in ABBREV:
+            out.append((ABBREV[tok], False))
+        elif tok:
+            out.append((tok, abbr))
+    return out
+
+
+def _same_name(gpr_tokens, osm_tokens):
+    if len(gpr_tokens) != len(osm_tokens):
+        return False
+    return all(o == g or (abbr and o.startswith(g)) for (g, abbr), (o, _) in zip(gpr_tokens, osm_tokens))
+
+
+def locate_junctions(s):
+    """Interchange positions for section ends named 'W. <name>' (węzeł), from the OSM
+    motorway_junction names (step 00b). GPR abbreviates (PŁD., MAZ. …); a name matches when
+    every token is equal or an abbreviation of it. Among same-named junction nodes, the group
+    nearest the section's counting point is used. Columns jx_start_x/y, jx_end_x/y."""
+    for c in ("jx_start_x", "jx_start_y", "jx_end_x", "jx_end_y"):
+        s[c] = np.nan
+    if not config.OSM_GPKG.exists():
+        return
+    try:
+        j = gpd.read_file(config.OSM_GPKG, layer="junctions")
+    except Exception:
+        return
+    j["tok"] = j["name"].map(_tokens)
+    by_first = {}
+    for k, tk in enumerate(j["tok"]):
+        if tk:
+            by_first.setdefault(tk[0][0], []).append(k)
+    jx, jy = j.geometry.x.values, j.geometry.y.values
+    hit = 0
+    for r in s.itertuples():
+        ends = [x.strip() for x in str(r.nazwa_odcinka).split(" - ")]
+        if len(ends) != 2 or pd.isna(r.x):
+            continue
+        for side, nm in zip(("start", "end"), ends):
+            if not nm.upper().startswith("W. "):
+                continue
+            gt = _tokens(nm[3:])
+            if not gt:
+                continue
+            cand = [k for k in by_first.get(gt[0][0], []) if _same_name(gt, j["tok"].iat[k])]
+            if not cand and gt[0][1]:   # first token abbreviated: scan all
+                cand = [k for k, tk in enumerate(j["tok"]) if _same_name(gt, tk)]
+            if not cand:
+                continue
+            d = np.hypot(jx[cand] - r.x, jy[cand] - r.y)
+            near = d.min()
+            if near > r.dlugosc_km * 1000 * 1.5 + 3000:
+                continue   # same name elsewhere in Poland
+            grp = [k for k, dd in zip(cand, d) if np.hypot(jx[k] - jx[cand[d.argmin()]],
+                                                           jy[k] - jy[cand[d.argmin()]]) < 2000]
+            s.loc[r.Index, [f"jx_{side}_x", f"jx_{side}_y"]] = [jx[grp].mean(), jy[grp].mean()]
+            hit += 1
+    print(f"section ends located at a named interchange (OSM): {hit}")
+
+
 def resolve_split_sides(s):
     """A few sections have their right and left counting points kilometres apart (two
     stations, or one with a wrong chainage); their mean lies off the road. Keep the side
@@ -122,6 +190,7 @@ def main():
     s["x"] = np.where(s["lat"].notna(), pts.x, np.nan)
     s["y"] = np.where(s["lat"].notna(), pts.y, np.nan)
     resolve_split_sides(s)
+    locate_junctions(s)
 
     # explode into chainage-system pieces
     pieces = []

@@ -39,6 +39,11 @@ NEAR_M = 350             # any two section ends this close are one node
 TIE_M = 1_000            # a loose end this close to another section's line is tied onto it
 SUPERSEDED_NEAR_M = 20_000  # old DK N stretch this close to a counted S N section …
 SUPERSEDED_FAR_M = 10_000   # … and this far from any counted DK N section is dropped
+LOOSE_PAIR_M = 8_000       # two loose section ends this close are joined along the road …
+FOLLOW_M = 8_000
+HOLE_JUMP_M = 600          # … starting up to this far from the end (BDOT holes)           # a loose end follows its own road this far to reach the network
+CITY_GUARD_M = 1_000       # … unless one lies in / at a city with powiat rights
+PARALLEL_M = 2_500          # an uncounted chain entirely this close to a counted route duplicates it
 STRAIGHT_M = 30          # shorter joins are drawn straight
 
 D = pickle.load(open(config.GRAPH_PKL, "rb"))
@@ -138,10 +143,47 @@ def drop_superseded(unmeasured, sec):
             if s_geom is not None and s_geom.distance(p) <= SUPERSEDED_NEAR_M and (
                     dk_geom is None or dk_geom.distance(p) > SUPERSEDED_FAR_M):
                 keep[k] = False
-    dropped = unmeasured[~keep]
-    print(f"uncounted old alignments superseded by an S-road dropped: {len(dropped)} pieces, "
+    # parallel old alignments: merge what is left into chains; a chain all of whose points lie
+    # within PARALLEL_M of a counted section of the same number (DK N / S N / A N), or of a
+    # counted A/S road when its own number has no counted section within SUPERSEDED_FAR_M,
+    # duplicates a counted route (old road through a town next to its bypass, old DK8 next to
+    # S61 north of Suwałki …)
+    rest = unmeasured[keep]
+    merged = linemerge(rest.geometry.unary_union)
+    chains = [c for c in getattr(merged, "geoms", [merged]) if c.geom_type == "LineString"]
+    as_geom = sec[sec.counted_road.fillna("").str[:1].isin(["A", "S"])].geometry.unary_union
+    ctree = STRtree(list(rest.geometry))
+    drop_idx = set()
+    rest_tok = rest["NUMER_DROG"].map(skdr_tokens).tolist()
+    city = None
+    if config.OSM_GPKG.exists():
+        try:
+            city = gpd.read_file(config.OSM_GPKG, layer="cities").geometry.buffer(
+                CITY_GUARD_M).unary_union
+        except Exception:
+            city = None
+    for c in chains:
+        if city is not None and city.contains(c.interpolate(0.5, normalized=True)):
+            continue   # a city's own through-road (GPR does not count it): keep for routing
+        hits = ctree.query(c.buffer(1), predicate="intersects")
+        toks = set().union(*[rest_tok[h] for h in hits]) if len(hits) else set()
+        nums = {x.lstrip("AS") for x in toks}
+        same = [by_road[r] for n in nums for r in (n, "S" + n, "A" + n) if r in by_road]
+        pts = [c.interpolate(d) for d in np.linspace(0, c.length, max(3, int(c.length // 250)))]
+        def within(geom):
+            return all(geom.distance(q) <= PARALLEL_M for q in pts)
+        dup = any(within(g) for g in same)
+        if not dup and as_geom is not None and not as_geom.is_empty:
+            own_far = all(by_road.get(n) is None or by_road[n].distance(c) > SUPERSEDED_FAR_M
+                          for n in nums if not n.startswith(("A", "S")))
+            dup = own_far and within(as_geom)
+        if dup:
+            drop_idx.update(rest.index[h] for h in hits)
+    keep2 = ~unmeasured.index.isin(drop_idx) & keep
+    dropped = unmeasured[~keep2]
+    print(f"uncounted old / parallel alignments dropped: {len(dropped)} pieces, "
           f"{dropped.length.sum() / 1000:.0f} km")
-    return unmeasured[keep]
+    return unmeasured[keep2]
 
 
 def main():
@@ -231,13 +273,108 @@ def main():
             extend(ea, road_path(end_xy(ea), pb))
             new = pb
         else:
-            if math.dist(pa, pb) > NEAR_M:
-                continue   # two established nodes: leave them apart
+            if math.dist(pa, pb) > NEAR_M and kind != "consecutive":
+                continue   # two established nodes: leave them apart (unless consecutive
+                           # sections of one road: then eb runs on to the other node)
             extend(eb, road_path(end_xy(eb), pa))
             new = pa
         parent[rb] = ra
         anchor[ra] = new
         counts[kind] += 1
+
+    # ── loose ends: pair two loose ends along the road between them ──────────────────
+    # (a section of one road ends where one of another road starts a few km on, the
+    # stretch in between has no section: S11h → DK11 near Olesno, DK63 → DK64 at Łomża).
+    # Not for ends at a city with powiat rights: GPR leaves the city's own roads out.
+    city = None
+    if config.OSM_GPKG.exists():
+        try:
+            city = gpd.read_file(config.OSM_GPKG, layer="cities").geometry.buffer(CITY_GUARD_M).unary_union
+        except Exception:
+            city = None
+    loose = [e for e in all_ends if find(e) == e and e not in anchor
+             and (city is None or not city.contains(Point(end_xy(e))))]
+    ltree_pts = cKDTree([end_xy(e) for e in loose]) if loose else None
+    cand = []
+    for a_i, e in enumerate(loose):
+        for b_i in ltree_pts.query_ball_point(end_xy(e), LOOSE_PAIR_M):
+            if b_i > a_i and loose[b_i] // 2 != e // 2:
+                cand.append((math.dist(end_xy(e), end_xy(loose[b_i])), e, loose[b_i]))
+    paired = 0
+    for d, ea, eb in sorted(cand):
+        if find(ea) != ea or find(eb) != eb or ea in anchor or eb in anchor:
+            continue
+        path = road_path(end_xy(ea), end_xy(eb))
+        if len(path) <= 2 or LineString(path).length > max(1.6 * d, d + 1500):
+            continue   # no road between them (straight fallback) or a long detour
+        first, second, mid = half_split(path)
+        extend(ea, first)
+        extend(eb, second[::-1])
+        parent[eb] = ea
+        anchor[ea] = mid
+        paired += 1
+    print(f"loose ends paired along roads: {paired}")
+
+    # ── loose ends: follow the section's own road until it meets another section ──────
+    # (DK20 ends 4 km short of the S11 at Szczecinek, DK25 3 km short of DK15 …)
+    lines = {i: LineString(c) for i, c in coords.items()}
+    ltree = STRtree([lines[i] for i in sec.index])
+    followed = 0
+    import os
+    dbg = [tuple(map(float, v.split(","))) for v in os.environ.get("STITCH_DEBUG", "").split(";") if v]
+    for e in all_ends:
+        for dx, dy in dbg:
+            if math.dist(end_xy(e), (dx, dy)) < 800:
+                print("DEBUG end", e, sec.numer_odcinka[e // 2], sec.road[e // 2], np.round(end_xy(e)),
+                      "root", find(e), "anchored", e in anchor or find(e) in anchor)
+        if find(e) != e or e in anchor:
+            continue
+        i = e // 2
+        p = end_xy(e)
+        if city is not None and city.contains(Point(p)):
+            continue
+        road = str(sec.road[i])
+        num = road.lstrip("AS")
+        on_road = lambda u, v, d: d["len"] if (road in d["tok"] or num in d["num"]) else None
+        # start at the nearest node, and also at own-road nodes up to HOLE_JUMP_M away (a hole
+        # in BDOT right at the section end: DK25 near Inowrocław, S7 at Grójec)
+        starts = [int(NODES[k]) for k in sorted(NODE_TREE.query_ball_point(p, HOLE_JUMP_M),
+                                                key=lambda k: math.dist(p, XY[int(NODES[k])]))]
+        starts = [n for n in starts if any(road in G[n][m]["tok"] or num in G[n][m]["num"]
+                                           for m in G[n])] or [int(NODES[NODE_TREE.query(p)[1]])]
+        best, tried = None, set()
+        for start in starts[:15]:
+            if start in tried:
+                continue
+            try:
+                dist, paths = nx.single_source_dijkstra(G, start, cutoff=FOLLOW_M, weight=on_road)
+            except nx.NodeNotFound:
+                continue
+            tried.update(dist)
+            for v in sorted(dist, key=dist.get):
+                if dist[v] < 300 and math.dist(p, XY[start]) < 50:
+                    continue   # still at the section's own end
+                q = Point(XY[v])
+                hit = [sec.index[j] for j in ltree.query(q.buffer(40))
+                       if sec.index[j] != i and lines[sec.index[j]].distance(q) <= 40]
+                if hit:
+                    best = v
+                    break
+            if best is not None:
+                break
+        if best is None:
+            continue
+        nodes = paths[best]
+        path = [p]
+        for a, b in zip(nodes[:-1], nodes[1:]):
+            c = list(GEOMS[G[a][b]["eid"]].coords)
+            if math.dist(c[0], XY[a]) > math.dist(c[-1], XY[a]):
+                c = c[::-1]
+            path.extend(tuple(x[:2]) for x in c)
+        extend(e, path)
+        anchor[e] = path[-1]
+        followed += 1
+    print(f"loose ends followed along their own road to the network: {followed}")
 
     # ── loose ends: tie onto a nearby section line (T-junction) ──────────────────────
     lines = {i: LineString(c) for i, c in coords.items()}

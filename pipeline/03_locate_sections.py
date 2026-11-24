@@ -4,7 +4,9 @@
 Section-first linear referencing (replaces the old "cut the network, then nearest point"):
 
   1. Each chainage system (S7, S7j, 94g …) is split into RUNS of contiguous km.
-  2. Counting points are ANCHORS: known km (pik_prawy/lewy) + known position.
+  2. Counting points are ANCHORS: known km (pik_prawy/lewy) + known position. Section ends
+     named after an interchange ('W. SZCZECINEK PŁD.') found in OSM are anchors too (km =
+     the section's start / end).
   3. Between consecutive anchors the route is the cheapest path on the SKDR graph,
      preferring edges of the same road. km → metres is interpolated piecewise-linearly
      between anchors, so the GDDKiA/BDOT length mismatch is absorbed locally.
@@ -165,7 +167,38 @@ def extend(a, d_target, ref_xy, road, number):
     return [XY[a]], "none"
 
 
-_PTS = pd.read_csv(config.SECTIONS_CSV).dropna(subset=["x"])
+_SEC = pd.read_csv(config.SECTIONS_CSV)
+_ROADREF = __import__("re").compile(r"(?<![A-Z0-9])(DK|S|A)\s?(\d+)")
+
+
+def _hint(name):
+    """Roads named at a section end: 'W. LATKOWO /DK15/' → {'15'}; 'W. X /S7, DW621/' → {'S7'}."""
+    out = set()
+    for kind, n in _ROADREF.findall(str(name).upper()):
+        out.add(n if kind == "DK" else kind + n)
+    return out
+
+
+HINTS = {}
+for _r in _SEC.itertuples():
+    _ends = str(_r.nazwa_odcinka).split(" - ")
+    if len(_ends) == 2:
+        HINTS[_r.numer_odcinka] = (_hint(_ends[0]), _hint(_ends[1]))
+
+
+def near_road(pt, roads, radius=1000):
+    """Is a graph edge of one of *roads* within radius of pt?"""
+    if not roads:
+        return True
+    for eid in TREE.query(Point(pt).buffer(radius)):
+        if eid in EDGE_NODES:
+            u, v = EDGE_NODES[eid]
+            if G[u][v]["tok"] & roads:
+                return True
+    return False
+
+
+_PTS = _SEC.dropna(subset=["x"])
 _PT_TREE = STRtree([Point(x, y) for x, y in zip(_PTS.x, _PTS.y)])
 _PT_SEC = _PTS.numer_odcinka.values
 
@@ -191,7 +224,11 @@ def place_run(run, anchors, road, number):
     r0, r1 = run["p0"].min(), run["p1"].max()
     dedup = []
     for km, node, kind in sorted(anchors):
-        if dedup and (abs(km - dedup[-1][0]) < 0.05 or node == dedup[-1][1]):
+        # same km at two places > 300 m apart (DK20 ends at W. Szczecinek Płd., the next
+        # DK20 section starts at W. Szczecinek Śródmieście, the S11 between them carries no
+        # DK20 km): keep both; the run splits there and step 03b joins the chains
+        if dedup and (node == dedup[-1][1] or (abs(km - dedup[-1][0]) < 0.05 and
+                                               math.dist(XY[node], XY[dedup[-1][1]]) < 300)):
             continue
         dedup.append((km, node, kind))
     cost = cost_fn(road, number)
@@ -247,18 +284,36 @@ def place_run(run, anchors, road, number):
             # up the S5 instead of along the shared S5/S10)
             own = set(run.numer_odcinka)
             options = []
-            for first in ("after", "before"):
+            a0, _ = extend(ch[-1][1], d1, None, road, number)
+            b0, _ = extend(ch[0][1], d0, None, road, number)
+            for first in ("after", "before", "after_flip", "before_flip"):
                 if first == "before":
                     b, fb = extend(ch[0][1], d0, None, road, number)
                     a, fa = extend(ch[-1][1], d1, b[-1] if len(b) > 1 else None, road, number)
-                else:
+                elif first == "after":
                     a, fa = extend(ch[-1][1], d1, None, road, number)
                     b, fb = extend(ch[0][1], d0, a[-1] if len(a) > 1 else None, road, number)
+                elif first == "after_flip":   # the long side the other way
+                    if len(a0) < 2:
+                        continue
+                    a, fa = extend(ch[-1][1], d1, a0[-1], road, number)
+                    b, fb = extend(ch[0][1], d0, a[-1] if len(a) > 1 else None, road, number)
+                else:
+                    if len(b0) < 2:
+                        continue
+                    b, fb = extend(ch[0][1], d0, b0[-1], road, number)
+                    a, fa = extend(ch[-1][1], d1, b[-1] if len(b) > 1 else None, road, number)
                 # first: how many km the road ran out short of; then: other sections'
                 # counting points run over
                 got = sum(LineString(c).length for c in (a, b) if len(c) > 1)
                 short_km = round(max(d0 + d1 - got, 0) / 1000)
-                options.append(((short_km, foreign_points(b[::-1] + a[1:], own)), b, fb, a, fa))
+                # the run's first / last section names the road at its start / end
+                # ('W. LATKOWO /DK15/'): an end that is nowhere near that road is wrong
+                first_id = run.sort_values("p0").numer_odcinka.iloc[0]
+                last_id = run.sort_values("p0").numer_odcinka.iloc[-1]
+                miss = (not near_road(b[-1], HINTS.get(first_id, (set(), set()))[0])) +                        (not near_road(a[-1], HINTS.get(last_id, (set(), set()))[1]))
+                options.append(((miss, short_km, foreign_points(b[::-1] + a[1:], own)),
+                                b, fb, a, fa))
             _, before, f0, after, f1 = min(options, key=lambda o: o[0])
         coords = before[::-1] + coords_mid[1:] + after[1:]
         if len(coords) < 2:
@@ -482,10 +537,31 @@ def main():
     qflags = defaultdict(set)        # piece index → flags
     run_lines = {}                   # runs placed from anchors
 
+    n_parts = pcs.groupby("numer_odcinka")["part"].max()
+
+    def junction_anchors(pc, s):
+        """Section ends named after an interchange whose position is known (step 01, OSM):
+        an anchor at the section's start/end km. Skipped if it contradicts the counting point."""
+        out = []
+        for col, km, ok in (("jx_start", pc.p0, pc.part == 0),
+                            ("jx_end", pc.p1, pc.part == n_parts[pc.numer_odcinka])):
+            x, y = s.get(f"{col}_x"), s.get(f"{col}_y")
+            if not ok or pd.isna(x):
+                continue
+            if pd.notna(s.x) and pd.notna(s.pk) and math.dist((x, y), (s.x, s.y)) >                     abs(km - s.pk) * 1000 * 1.3 + 1500:
+                continue
+            node, _ = snap(Point(x, y), pc.road, pc.number)
+            if node is not None:
+                # at a shared km, a section's end comes before the next section's start
+                out.append((km + (1e-6 if col == "jx_start" else -1e-6), node, "strict"))
+        return out
+
     def anchor_list(run, loose):
         out = []
         for idx, pc in run.iterrows():
             s = sec_by_id.loc[pc.numer_odcinka]
+            if not loose:
+                out.extend(junction_anchors(pc, s))
             if pd.isna(s.x):
                 continue
             if not loose and not pc.anchor:

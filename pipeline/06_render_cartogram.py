@@ -18,9 +18,9 @@ from matplotlib.lines import Line2D  # noqa: E402
 import config  # noqa: E402
 
 THEMES = {
-    "light": dict(bg="#fcfcfb", land="#f3f2ef", border="#d6d5cf", ctx=config.NO_COUNT_LIGHT,
+    "light": dict(bg="#fcfcfb", land="#f3f2ef", city="#e6e4de", border="#d6d5cf", ctx=config.NO_COUNT_LIGHT,
                   text="#0b0b0b", text2="#52514e", ramp=config.SDRR_COLORS_LIGHT),
-    "dark": dict(bg="#1a1a19", land="#232322", border="#3a3a37", ctx=config.NO_COUNT_DARK,
+    "dark": dict(bg="#1a1a19", land="#232322", city="#2e2e2b", border="#3a3a37", ctx=config.NO_COUNT_DARK,
                  text="#f0efec", text2="#c3c2b7", ramp=config.SDRR_COLORS_DARK),
 }
 FONT_FILE = "C:/Windows/Fonts/bahnschrift.ttf"
@@ -63,7 +63,7 @@ def segs(geom):
     return [np.asarray(p.coords)[:, :2] for p in parts]
 
 
-def render(theme, sec, ctx, dw, voiv, country):
+def render(theme, sec, ctx, dw, voiv, country, cities=None):
     t = THEMES[theme]
     # frame = country bounds + small margins (extra on top for the title over the Baltic);
     # the axes fill the whole figure, so Poland fills the frame
@@ -74,6 +74,8 @@ def render(theme, sec, ctx, dw, voiv, country):
     fig.patch.set_facecolor(t["bg"])
     ax.set_facecolor(t["bg"])
     country.plot(ax=ax, color=t["land"], edgecolor="none")
+    if cities is not None and len(cities):   # cities with powiat rights: GPR does not count there
+        cities.plot(ax=ax, color=t["city"], edgecolor="none", zorder=1)
     # internal admin borders omitted: granice_admin pieces do not share edges cleanly
     country.boundary.plot(ax=ax, color=t["border"], linewidth=0.9)
     if dw is not None and len(dw):   # regional roads: no traffic data, thin context
@@ -132,6 +134,10 @@ def render(theme, sec, ctx, dw, voiv, country):
     if dw is not None and len(dw):
         ctx_h.append(Line2D([], [], color=t["ctx"], lw=0.5, solid_capstyle="butt",
                             label="drogi wojewódzkie (bez danych o ruchu)"))
+    if cities is not None and len(cities):
+        from matplotlib.patches import Patch
+        ctx_h.append(Patch(facecolor=t["city"], edgecolor="none",
+                           label="miasta na prawach powiatu"))
     leg2 = ax.legend(handles=ctx_h, loc="lower left", bbox_to_anchor=(0.175, 0.035),
                      frameon=False, fontsize=9, labelcolor=t["text2"], handlelength=3.4,
                      borderaxespad=0.2)
@@ -148,8 +154,10 @@ def main():
     use_font()
     sec = gpd.read_file(config.NETWORK_GPKG, layer="sections")
     ctx = gpd.read_file(config.NETWORK_GPKG, layer="skdr_unmeasured")
+    cities = None
     try:
         dw = gpd.read_file(config.NETWORK_GPKG, layer="regional_roads")
+        cities = gpd.read_file(config.OSM_GPKG, layer="cities") if config.OSM_GPKG.exists() else None
         dw["geometry"] = dw.geometry.simplify(20)
     except Exception:
         dw = None
@@ -158,7 +166,7 @@ def main():
     voiv["geometry"] = voiv.buffer(200).buffer(-200).simplify(100)   # close sheet slivers
     country = gpd.GeoDataFrame(geometry=[voiv.unary_union.buffer(200).buffer(-200)], crs=2180)
     for theme in THEMES:
-        render(theme, sec, ctx, dw, voiv, country)
+        render(theme, sec, ctx, dw, voiv, country, cities)
 
 
 if __name__ == "__main__":

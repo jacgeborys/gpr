@@ -49,3 +49,17 @@ SDRR_COLORS_DARK = ["#4270bd", "#786fd4", "#ad6bda", "#dd6bc8", "#ff73a6",
                     "#ff8981", "#ffa762", "#ffc75c", "#ffe772"]    # blue → violet → pink → orange → yellow
 # roads without counts sit between the land colour and the lowest class in lightness
 NO_COUNT_LIGHT, NO_COUNT_DARK = "#e2dfda", "#494843"
+
+# cities with powiat rights (miasta na prawach powiatu): they manage the national roads
+# inside them, which GPR does not count; drawn as pale areas on the map
+POWIAT_CITIES = [
+    "Biała Podlaska", "Białystok", "Bielsko-Biała", "Bydgoszcz", "Bytom", "Chełm", "Chorzów",
+    "Częstochowa", "Dąbrowa Górnicza", "Elbląg", "Gdańsk", "Gdynia", "Gliwice",
+    "Gorzów Wielkopolski", "Grudziądz", "Jastrzębie-Zdrój", "Jaworzno", "Jelenia Góra", "Kalisz",
+    "Katowice", "Kielce", "Konin", "Koszalin", "Kraków", "Krosno", "Legnica", "Leszno", "Lublin",
+    "Łomża", "Łódź", "Mysłowice", "Nowy Sącz", "Olsztyn", "Opole", "Ostrołęka", "Piekary Śląskie",
+    "Piotrków Trybunalski", "Płock", "Poznań", "Przemyśl", "Radom", "Ruda Śląska", "Rybnik",
+    "Rzeszów", "Siedlce", "Siemianowice Śląskie", "Skierniewice", "Słupsk", "Sopot", "Sosnowiec",
+    "Suwałki", "Szczecin", "Świętochłowice", "Świnoujście", "Tarnobrzeg", "Tarnów", "Toruń",
+    "Tychy", "Wałbrzych", "Warszawa", "Włocławek", "Wrocław", "Zabrze", "Zamość", "Zielona Góra",
+    "Żory"]

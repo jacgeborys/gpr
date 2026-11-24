@@ -30,6 +30,7 @@ HEAL_M = 3.0
 DANGLE_M = 20.0
 DANGLE_ROAD_M = 200.0
 DANGLE_AS_M = 1000.0
+DANGLE_TO_AS_M = 600.0
 MAX_EDGE_M = 250.0
 OSM_BUFFER_M = 40.0   # OSM within this of a BDOT national road = BDOT already has it
 OSM_MIN_M = 60.0      # shorter OSM leftovers are carriageway/vertex noise
@@ -215,15 +216,21 @@ def main():
         # expressways/motorways: holes up to DANGLE_AS_M (unmapped interchange cores, e.g.
         # S6 at Węzeł Chwaszczyno is missing ~600 m); other roads up to DANGLE_ROAD_M
         as_tok = frozenset(t for t in tok if t[:1] in "AS")
-        radius = DANGLE_AS_M if as_tok else DANGLE_ROAD_M
+        # a DK dead end may also reach an expressway/motorway interchange within
+        # DANGLE_TO_AS_M (DK20 at Węzeł Szczecinek Płd.: the connecting ramps are unmapped)
+        radius = DANGLE_AS_M if as_tok else DANGLE_TO_AS_M
         cand = sorted((math.dist(node_xy[n], node_xy[int(nodes[j])]), int(nodes[j]))
                       for j in tree.query_ball_point(node_xy[n], radius))
         near = nx.single_source_dijkstra_path_length(G, n, cutoff=6 * radius, weight="len")
         for d, m in cand:
             if d <= DANGLE_M or m in near:
                 continue
-            need = as_tok if d > DANGLE_ROAD_M else tok
-            if not any(G[m][k]["tok"] & need for k in G[m]):
+            if as_tok or d <= DANGLE_ROAD_M:
+                need = as_tok if d > DANGLE_ROAD_M else tok
+                ok = any(G[m][k]["tok"] & need for k in G[m])
+            else:   # DK end, 200–600 m: only onto an A/S road
+                ok = any(any(x[:1] in "AS" for x in G[m][k]["tok"]) for k in G[m])
+            if not ok:
                 continue
             add_edge(n, m, LineString([node_xy[n], node_xy[m]]), tok, G[n][nb]["oper"])
             healed += 1

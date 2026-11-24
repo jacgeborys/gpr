@@ -20,6 +20,23 @@ _Updated 2026-11-24_
      sections of one chainage system, sections named after the same interchange, and any ends
      closer than 350 m. Continuity takes priority over the exact alignment inside interchanges or
      whether traffic uses an old or a new alignment (e.g. DK8 Suchowola–Białystok).
+- **Gaps only at cities** (checked 2026-11-24): the 66 cities with powiat rights are drawn as
+  pale areas (OSM boundaries, step 00b `cities`). Outside them, uncounted national road left on
+  the map is ≈47 km in 12 stretches: old roads into towns that GDDKiA now routes around
+  (old DK20 through Szczecinek, old DK63/DK61 into Łomża) and sub-2 km interchange bits.
+  What made this work:
+  - **Interchange anchors**: section ends named 'W. <name>' are matched to OSM
+    `motorway_junction` names (PŁD./PŁN./WSCH./ZACH. expanded, other abbreviations as prefixes;
+    1,471 of 1,637 ends) and anchor the section's start/end km. At a shared km a section's end
+    comes before the next one's start (DK20 → S11 → DK20 at Szczecinek).
+  - **Road hints in names** ('W. LATKOWO /DK15/'): a one-anchor run must end near the named road;
+    both directions are tried for each side.
+  - **Stitching extras**: loose ends paired along roads (≤8 km), loose ends followed along their own
+    road number to the network (≤8 km, jumping BDOT holes ≤600 m), consecutive sections always
+    joined; DK dead ends may join an A/S interchange within 600 m in the graph.
+  - **Parallel old alignments dropped** from context and model: an uncounted chain entirely within
+    2.5 km of a counted route of the same number (or of an A/S road when its own number has no
+    count within 10 km); city through-roads are kept for routing.
 - Fixes along the way: long BDOT features split into ≤250 m edges (anchors snapped kilometres
   off on new expressways); same-road holes healed (≤200 m, A/S ≤1 km); counting points with
   right/left sides kilometres apart; points up to 1 km outside their section; one-anchor runs
