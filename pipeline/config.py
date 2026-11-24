@@ -6,23 +6,27 @@ DATA = ROOT / "data"
 RAW = DATA / "raw"
 OUT = ROOT / "output"
 
-YEAR = 2025
+import os
+# which GPR round the pipeline works on (2025 by default); `set GPR_YEAR=2010` runs the
+# 2010 round through the same steps (01_parse_gpr2010.py instead of 01_parse_gpr.py)
+YEAR = int(os.environ.get("GPR_YEAR", 2025))
 GPR_TAB01 = RAW / "Tab01_25_dk_KRAJ_20260414.xlsx"   # section list + counting points
 GPR_TAB02 = RAW / "Tab02_25_dk_KRAJ_20260414.xlsx"   # SDRR by vehicle class
 
 BDOT_ZIP = Path(r"D:\QGIS\BODT10k\Polska_SHP.zip")
-import os
 SKDR_GPKG = Path(os.environ.get("GPR_SKDR", DATA / "bdot" / "skdr_krajowe.gpkg"))
 OSM_PBF = Path(r"D:\QGIS\osm_basemap\pbf\poland-latest.osm.pbf")  # Geofabrik extract
 OSM_GPKG = DATA / "osm" / "osm_main_roads.gpkg"   # from 00b_fetch_osm.py (optional)
 WEZLY_GPKG = Path(r"D:\QGIS\BODT10k\SKDR\skrw_wezly.gpkg")
 DW_GPKG = Path(r"D:\QGIS\BODT10k\SKDR\skdr_wojewodzkie.gpkg")   # regional roads (BDOT10k)
 BOUNDARY_SHP = Path(r"D:\QGIS\BODT10k\granice_admin.shp")
+LAND_SHP = Path(r"D:\QGIS\dual_carriegeways\data\countries.shp")   # Natural Earth, land only
 
 SECTIONS_CSV = OUT / f"gpr{YEAR}_sections.csv"
 POINTS_GPKG = OUT / f"gpr{YEAR}_points.gpkg"
-GRAPH_PKL = OUT / "skdr_graph.pkl"
+GRAPH_PKL = OUT / ("skdr_graph.pkl" if YEAR == 2025 else f"skdr_graph_{YEAR}.pkl")
 NETWORK_GPKG = OUT / f"traffic_network_{YEAR}.gpkg"
+GPR2010_DIR = RAW / "2010"   # Wykaz odcinków (Tablica 1) + SDR (Tablica 2) PDFs from the archive
 
 # --- linear referencing --------------------------------------------------------
 RUN_GAP_KM = 1.0          # chainage gap that splits one km-system into separate runs
@@ -32,6 +36,8 @@ NODE_ROUND_M = 1.0        # endpoint rounding used to build graph topology
 COST_SAME_ROAD = 1.0      # NUMER_DROG contains this road (e.g. 'S7' for system S7j)
 COST_SAME_NUMBER = 1.3    # same number, other class (DK7 for S7 and vice versa)
 COST_OTHER_ROAD = 3.0     # other national road (covers SKDR labelling errors)
+COST_OTHER_ROAD_PAST = 1.4  # past GPR rounds: roads were renumbered since, so other numbers are fine
+COST_REGIONAL_PAST = 2.5    # past rounds: regional roads (old national alignments downgraded)
 # BDOT10k 'w budowie' pieces: routable only as a fallback. BDOT often marks bits of roads
 # that GPR counted in 2025 (viaducts, rebuilt carriageways) as under construction, which
 # would otherwise break the line; a counted GPR section is proof the road was open.

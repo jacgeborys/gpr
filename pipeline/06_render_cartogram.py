@@ -185,6 +185,14 @@ def main():
     voiv = adm[adm.RODZAJ == "województwo"].dissolve(by="NAZWA").reset_index()
     voiv["geometry"] = voiv.buffer(200).buffer(-200).simplify(100)   # close sheet slivers
     country = gpd.GeoDataFrame(geometry=[voiv.unary_union.buffer(200).buffer(-200)], crs=2180)
+    if cities is not None and len(cities):
+        # OSM city boundaries of Gdańsk / Gdynia / Szczecin … run far into the sea: land only
+        land = country
+        if config.LAND_SHP.exists():   # the admin outline includes the Gulf of Gdańsk waters
+            ne = gpd.read_file(config.LAND_SHP)
+            ne = ne[ne["ADM0_A3"] == "POL"].to_crs(2180)
+            land = gpd.GeoDataFrame(geometry=[ne.unary_union.buffer(300)], crs=2180)
+        cities = gpd.clip(cities.to_crs(2180), land)
     for theme in THEMES:
         render(theme, sec, ctx, dw, voiv, country, cities)
 
