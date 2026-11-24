@@ -18,9 +18,9 @@ from matplotlib.lines import Line2D  # noqa: E402
 import config  # noqa: E402
 
 THEMES = {
-    "light": dict(bg="#fcfcfb", land="#f3f2ef", border="#d6d5cf", ctx="#b5b4ac",
+    "light": dict(bg="#fcfcfb", land="#f3f2ef", border="#d6d5cf", ctx="#262524",
                   text="#0b0b0b", text2="#52514e", ramp=config.SDRR_COLORS_LIGHT),
-    "dark": dict(bg="#1a1a19", land="#232322", border="#3a3a37", ctx="#5c5c57",
+    "dark": dict(bg="#1a1a19", land="#232322", border="#3a3a37", ctx="#3d3c39",
                  text="#f0efec", text2="#c3c2b7", ramp=config.SDRR_COLORS_DARK),
 }
 FONT_FILE = "C:/Windows/Fonts/bahnschrift.ttf"
@@ -127,9 +127,7 @@ def render(theme, sec, ctx, notop, voiv, country):
     leg.get_title().set_color(t["text"])
     ax.add_artist(leg)
     # context legend (next to the class legend, over Czechia)
-    ctx_h = [Line2D([], [], color=t["text2"], lw=0.9, ls=(0, (1, 1.5)), solid_capstyle="butt",
-                    label="brak wyniku (oddane XII 2025 / pomiar 2026)"),
-             Line2D([], [], color=t["ctx"], lw=1.4, solid_capstyle="butt",
+    ctx_h = [Line2D([], [], color=t["ctx"], lw=1.4, solid_capstyle="butt",
                     label="drogi krajowe bez pomiaru GPR\n(głównie odcinki w miastach)")]
     if notop is not None and len(notop):
         ctx_h.append(Line2D([], [], color=t["text2"], lw=0.9, ls=(0, (2, 2)),
