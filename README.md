@@ -86,7 +86,10 @@ chunk's lines then their cores, so thin roads' cores don't cross motorways; core
 red without anti-aliasing, and cores under `CORE_MIN_PT` = 0.45 pt are not drawn because they
 would blend into purple), and
 `cartogram_2025_dkdw_truckshare_*.png`, where width ∝ SDRR and colour = truck share
-(<5 / 10 / 15 / 20 / 30 / >30 %, blue → red). Median truck share: 12% on national roads,
+(<5 / 10 / 15 / 20 / 30 / >30 %, blue → red). The current share ramp barely changes lightness,
+so its middle classes merge for red–green colour-blind readers. Candidate ramps with a lightness
+step (`TRUCK_SHARE_VARIANTS` A/B/C, `--dw --ramp X` → `..._truckshare_X_*.png`, not committed)
+are under review. Median truck share: 12% on national roads,
 5% on regional roads.
 Not yet: 03b stitching for regional sections, a closer look at the 'foreign' / 'scale' flags.
 

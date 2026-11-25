@@ -49,6 +49,17 @@ CORE_MIN_PT = 0.45   # truck cores thinner than ~1.25 px (at 200 dpi) are left o
 TRUCK_SHARE_BREAKS = [0.05, 0.10, 0.15, 0.20, 0.30]
 TRUCK_SHARE_RAMP = {"light": ["#2a6fbb", "#5f78c6", "#9068b6", "#c2519a", "#de3a57", "#a8121c"],
                     "dark": ["#3fa7d6", "#6f9be6", "#a98be6", "#e27ac4", "#ff6b7d", "#ff3b30"]}
+# candidate share ramps with a lightness step (OKLCH), colour-blind friendlier; try with
+# --ramp A|B|C → cartogram_<year>_dkdw_truckshare_<X>_*.png
+TRUCK_SHARE_VARIANTS = {
+    "A": {"light": ["#69a1e8", "#857fd7", "#a059b1", "#ab3276", "#a5092a", "#8a0314"],
+          "dark": ["#3d73b6", "#7973ca", "#b76ec7", "#e96cad", "#ff8386", "#ffa098"]},
+    "B": {"light": ["#97c1f7", "#9995e8", "#ab62bb", "#ae2c77", "#950024", "#6a000b"],
+          "dark": ["#2b568b", "#655eb3", "#aa62ba", "#e669aa", "#fe8f90", "#febab4"]},
+    "C": {"light": ["#418ad1", "#78b3d6", "#fc9e47", "#e86518", "#c92516", "#8a0314"],
+          "dark": ["#2a75ba", "#579bc2", "#ffa659", "#fd7933", "#f14634", "#df202e"]},
+}
+RAMP_TAG = ""
 LABEL_BELOW = {"Rzeszów", "Olsztyn"}   # labelled bottom right so they don't cover the A4 / S51-S16
 
 
@@ -278,7 +289,7 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None, mode=Non
     fig.text(0.025, 0.015, f"Dane: GDDKiA GPR {config.YEAR}, BDOT10k (GUGiK), OpenStreetMap · "
              f"© {config.AUTHOR}, autorzy OpenStreetMap", fontsize=7.5, color=t["text2"], ha="left")
     out = config.OUT / (f"cartogram_{config.YEAR}{'_dkdw' if dwsec is not None else ''}"
-                        f"{'_' + mode if mode else ''}_{theme}.png")
+                        f"{'_' + mode if mode else ''}{RAMP_TAG}_{theme}.png")
     fig.savefig(out, facecolor=t["bg"])
     plt.close(fig)
     print(f"saved {out}")
@@ -325,6 +336,10 @@ def main():
         if d is not None:   # trucks = samochody ciężarowe bez + z przyczepą
             d["trucks"] = d.sdrr_ciezarowe_bez.fillna(0) + d.sdrr_ciezarowe_z.fillna(0)
     modes = ["trucks", "truckshare"] if "--trucks" in sys.argv else [None]
+    if "--ramp" in sys.argv:   # a candidate share ramp only
+        global TRUCK_SHARE_RAMP, RAMP_TAG
+        name = sys.argv[sys.argv.index("--ramp") + 1]
+        TRUCK_SHARE_RAMP, RAMP_TAG, modes = TRUCK_SHARE_VARIANTS[name], f"_{name}", ["truckshare"]
     for mode in modes:
         for theme in THEMES:
             render(theme, sec, ctx, dw, voiv, country, cities, dwsec, mode)
