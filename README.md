@@ -91,6 +91,8 @@ so its middle classes merge for red–green colour-blind readers. Candidate ramp
 step (`TRUCK_SHARE_VARIANTS` A/B/C/D, D = current ends with re-spaced middle classes; `--dw --ramp X` → `..._truckshare_X_*.png`, not committed)
 were tried; the current ramp was kept (2026-11-25): the vivid middle hues that make it look good are the same ones that merge, and the alternatives look duller. Median truck share: 12% on national roads,
 5% on regional roads.
+**English versions**: add `--lang en` (all map modes) → same file names ending in `_en`
+(AADT for SDRR, "cities with county rights", Warszawa → Warsaw; numbers with comma separators).
 Not yet: 03b stitching for regional sections, a closer look at the 'foreign' / 'scale' flags.
 
 ### GPR 2010 regional roads

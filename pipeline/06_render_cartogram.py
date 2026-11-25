@@ -63,6 +63,16 @@ TRUCK_SHARE_VARIANTS = {
           "dark": ["#3fa7d6", "#8682ba", "#965f9c", "#b8538c", "#e75652", "#ff3b30"]},
 }
 RAMP_TAG = ""
+LANG = "pl"   # --lang en: English text, files end in _en
+CITY_EN = {"Warszawa": "Warsaw"}   # other city names are the same in English
+
+
+def txt(pl, en):
+    return en if LANG == "en" else pl
+
+
+def fmt_num(v):
+    return f"{v:,.0f}" if LANG == "en" else f"{v:,.0f}".replace(",", " ")
 LABEL_BELOW = {"Rzeszów", "Olsztyn"}   # labelled bottom right so they don't cover the A4 / S51-S16
 
 
@@ -95,7 +105,7 @@ def sdrr_class(v):
 
 
 def class_labels():
-    f = lambda v: f"{v:,.0f}".replace(",", " ")
+    f = fmt_num
     b = config.SDRR_BREAKS
     return ([f"< {f(b[0])}"] + [f"{f(lo)} – {f(hi)}" for lo, hi in zip(b[:-1], b[1:])]
             + [f"> {f(b[-1])}"])
@@ -199,7 +209,7 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None, mode=Non
     for name, p in zip(CITIES, pts):
         ax.plot(p.x, p.y, "o", ms=3, color=t["text"], zorder=5)
         below = name in LABEL_BELOW   # label bottom right, off a road running east-west
-        ax.annotate(name, (p.x, p.y), xytext=(5, -4 if below else 4), textcoords="offset points",
+        ax.annotate(txt(name, CITY_EN.get(name, name)), (p.x, p.y), xytext=(5, -4 if below else 4), textcoords="offset points",
                     fontsize=9, va="top" if below else "baseline",
                     color=t["text"], zorder=6, fontweight="medium",
                     path_effects=[matplotlib.patheffects.withStroke(linewidth=2.5,
@@ -210,30 +220,42 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None, mode=Non
     ax.set_aspect("equal")
     ax.axis("off")
 
-    title = "krajowych i wojewódzkich" if dwsec is not None else "krajowych"
-    head = {None: f"Ruch na drogach {title} {config.YEAR}",
-            "trucks": f"Samochody ciężarowe na drogach {title} {config.YEAR}",
-            "truckshare": f"Udział samochodów ciężarowych na drogach {title} {config.YEAR}"}[mode]
-    sub = {None: "Średni dobowy ruch roczny (SDRR), pojazdy/dobę",
-           "trucks": "Szerokość linii: SDRR (wszystkie pojazdy), czerwony rdzeń: samochody ciężarowe",
-           "truckshare": "Kolor: udział samochodów ciężarowych w SDRR, szerokość linii: SDRR"}[mode]
+    if LANG == "en":
+        title = "national and regional roads" if dwsec is not None else "national roads"
+        head = {None: f"Traffic on {title} {config.YEAR}",
+                "trucks": f"Trucks on {title} {config.YEAR}",
+                "truckshare": f"Share of trucks on {title} {config.YEAR}"}[mode]
+        sub = {None: "Annual average daily traffic (AADT), vehicles/day",
+               "trucks": "Line width: AADT (all vehicles), red core: heavy trucks",
+               "truckshare": "Colour: heavy trucks' share of AADT, line width: AADT"}[mode]
+        census = f"GDDKiA General Traffic Census {config.YEAR}"
+    else:
+        title = "krajowych i wojewódzkich" if dwsec is not None else "krajowych"
+        head = {None: f"Ruch na drogach {title} {config.YEAR}",
+                "trucks": f"Samochody ciężarowe na drogach {title} {config.YEAR}",
+                "truckshare": f"Udział samochodów ciężarowych na drogach {title} {config.YEAR}"}[mode]
+        sub = {None: "Średni dobowy ruch roczny (SDRR), pojazdy/dobę",
+               "trucks": "Szerokość linii: SDRR (wszystkie pojazdy), czerwony rdzeń: samochody ciężarowe",
+               "truckshare": "Kolor: udział samochodów ciężarowych w SDRR, szerokość linii: SDRR"}[mode]
+        census = f"Generalny Pomiar Ruchu GDDKiA {config.YEAR}"
     fig.text(0.025, 0.965, head, fontsize=24, color=t["text"], va="top")
-    fig.text(0.025, 0.935, f"{sub} · Generalny Pomiar Ruchu GDDKiA {config.YEAR}", fontsize=11,
-             color=t["text2"], va="top")
+    fig.text(0.025, 0.935, f"{sub} · {census}", fontsize=11, color=t["text2"], va="top")
 
-    fmt = lambda v: f"{v:,.0f}".replace(",", " ")
+    fmt = fmt_num
+    aadt = txt("SDRR [pojazdy/dobę]", "AADT [vehicles/day]")
+    share_t = txt("Udział samochodów ciężarowych", "Share of heavy trucks")
     if mode is None:
         # class legend: colour + width of each class (width at the class middle), flat ends
         b = [0] + config.SDRR_BREAKS + [SDRR_MAX]
         mids = [(lo + hi) / 2 for lo, hi in zip(b[:-1], b[1:])]
         handles = [Line2D([], [], color=c, lw=width(m), solid_capstyle="butt", label=lab)
                    for c, m, lab in zip(t["ramp"], mids, class_labels())][::-1]
-        leg_title = "SDRR [pojazdy/dobę]"
+        leg_title = aadt
     elif mode == "trucks":
         tc = TRUCK_COLORS[theme]
         handles = [Line2D([], [], color=tc["car"], lw=width(v), solid_capstyle="butt",
                           label=fmt(v)) for v in (100_000, 50_000, 20_000, 5_000)]
-        leg_title = "SDRR [pojazdy/dobę]"
+        leg_title = aadt
     else:
         ramp = TRUCK_SHARE_RAMP[theme]
         b = [0] + TRUCK_SHARE_BREAKS
@@ -241,7 +263,7 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None, mode=Non
                 + [f"> {b[-1]:.0%}"])
         handles = [Line2D([], [], color=c, lw=5, solid_capstyle="butt", label=lab)
                    for c, lab in zip(ramp, labs)][::-1]
-        leg_title = "Udział samochodów ciężarowych"
+        leg_title = share_t
     leg = ax.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.01, 0.035),
                     frameon=False, fontsize=9.5, labelcolor=t["text2"],
                     title=leg_title, title_fontsize=11, handlelength=3.4,
@@ -256,11 +278,11 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None, mode=Non
         comp = [(Line2D([], [], color=tc["car"], lw=kw, solid_capstyle="butt"),
                  Line2D([], [], color=tc["truck"], lw=kw * sh, solid_capstyle="butt"))
                 for sh in shares]
-        leg3 = ax.legend(handles=comp, labels=[f"{sh:.0%} ciężarowych" for sh in shares],
+        leg3 = ax.legend(handles=comp, labels=[f"{sh:.0%} " + txt("ciężarowych", "trucks") for sh in shares],
                          handler_map={tuple: HandlerTuple(ndivide=1)},
                          loc="lower left", bbox_to_anchor=(0.01, 0.13), frameon=False,
                          fontsize=9.5, labelcolor=t["text2"], handlelength=3.4,
-                         title="Udział samochodów ciężarowych", title_fontsize=11,
+                         title=share_t, title_fontsize=11,
                          borderaxespad=0.2, alignment="left", labelspacing=0.9)
         leg3.get_title().set_color(t["text"])
         ax.add_artist(leg3)
@@ -269,30 +291,36 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None, mode=Non
               for v in (100_000, 30_000, 5_000)]
         leg4 = ax.legend(handles=wh, loc="lower left", bbox_to_anchor=(0.01, 0.16),
                          frameon=False, fontsize=9.5, labelcolor=t["text2"],
-                         title="SDRR [pojazdy/dobę]", title_fontsize=11, handlelength=3.4,
+                         title=aadt, title_fontsize=11, handlelength=3.4,
                          borderaxespad=0.2, alignment="left")
         leg4.get_title().set_color(t["text"])
         ax.add_artist(leg4)
     # context legend (next to the class legend, over Czechia): one entry for every road
     # without data, dotted GPR sections without a result (only if any), cities as a blob
     ctx_h = [Line2D([], [], color=t["ctx"], lw=1.2, solid_capstyle="butt",
-                    label="drogi bez danych\n(głównie odcinki w miastach)")]
+                    label=txt("drogi bez danych\n(głównie odcinki w miastach)",
+                             "roads without data\n(mostly sections in cities)"))]
     if len(nodata):
         ctx_h.append(Line2D([], [], color=t["ctx"], lw=1.2, linestyle=(0, (1, 1.2)),
-                            label=f"odcinki bez pomiaru w {config.YEAR}"))
+                            label=txt(f"odcinki bez pomiaru w {config.YEAR}",
+                                     f"sections not counted in {config.YEAR}")))
     handler_map = {}
     if cities is not None and len(cities):
         from matplotlib.patches import Patch
-        city_h = Patch(facecolor=t["city"], edgecolor="none", label="miasta na prawach powiatu")
+        city_h = Patch(facecolor=t["city"], edgecolor="none", label=txt("miasta na prawach powiatu", "cities with county rights"))
         ctx_h.append(city_h)
         handler_map[city_h] = BlobHandler()
     leg2 = ax.legend(handles=ctx_h, loc="lower left", bbox_to_anchor=(0.175, 0.035),
                      frameon=False, fontsize=9, labelcolor=t["text2"], handlelength=3.4,
                      borderaxespad=0.2, handler_map=handler_map, labelspacing=0.9)
-    fig.text(0.025, 0.015, f"Dane: GDDKiA GPR {config.YEAR}, BDOT10k (GUGiK), OpenStreetMap · "
-             f"© {config.AUTHOR}, autorzy OpenStreetMap", fontsize=7.5, color=t["text2"], ha="left")
+    fig.text(0.025, 0.015, txt(f"Dane: GDDKiA GPR {config.YEAR}, BDOT10k (GUGiK), OpenStreetMap · "
+                              f"© {config.AUTHOR}, autorzy OpenStreetMap",
+                              f"Data: GDDKiA GPR {config.YEAR}, BDOT10k (GUGiK), OpenStreetMap · "
+                              f"© {config.AUTHOR}, OpenStreetMap contributors"),
+             fontsize=7.5, color=t["text2"], ha="left")
     out = config.OUT / (f"cartogram_{config.YEAR}{'_dkdw' if dwsec is not None else ''}"
-                        f"{'_' + mode if mode else ''}{RAMP_TAG}_{theme}.png")
+                        f"{'_' + mode if mode else ''}{RAMP_TAG}_{theme}"
+                        f"{'_en' if LANG == 'en' else ''}.png")
     fig.savefig(out, facecolor=t["bg"])
     plt.close(fig)
     print(f"saved {out}")
@@ -338,6 +366,9 @@ def main():
     for d in (sec, dwsec):
         if d is not None:   # trucks = samochody ciężarowe bez + z przyczepą
             d["trucks"] = d.sdrr_ciezarowe_bez.fillna(0) + d.sdrr_ciezarowe_z.fillna(0)
+    global LANG
+    if "--lang" in sys.argv:
+        LANG = sys.argv[sys.argv.index("--lang") + 1]
     modes = ["trucks", "truckshare"] if "--trucks" in sys.argv else [None]
     if "--ramp" in sys.argv:   # a candidate share ramp only
         global TRUCK_SHARE_RAMP, RAMP_TAG
