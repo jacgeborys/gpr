@@ -11,8 +11,15 @@ import os
 # 2010 round through the same steps (01_parse_gpr2010.py instead of 01_parse_gpr.py)
 YEAR = int(os.environ.get("GPR_YEAR", 2025))
 AUTHOR = "Jacek Gęborys"   # credited in the map footer
+# which road network: 'dk' national roads (default), 'dw' regional roads (drogi wojewódzkie,
+# GPR 2025 only): `set GPR_NET=dw` runs steps 01–03b on the regional tables and BDOT regional
+# roads into separate files (gpr2025_dw_*, traffic_network_2025_dw.gpkg)
+NET = os.environ.get("GPR_NET", "dk")
+TAG = f"{YEAR}" + ("_dw" if NET == "dw" else "")
 GPR_TAB01 = RAW / "Tab01_25_dk_KRAJ_20260414.xlsx"   # section list + counting points
 GPR_TAB02 = RAW / "Tab02_25_dk_KRAJ_20260414.xlsx"   # SDRR by vehicle class
+GPR_DW_TAB01 = RAW / "Tab01_25_dw_KRAJ.xlsx"         # regional roads: sections + counting points
+GPR_DW_TAB02 = RAW / "Tab02_25_dw_KRAJ.xlsx"         # regional roads: SDRR
 
 BDOT_ZIP = Path(r"D:\QGIS\BODT10k\Polska_SHP.zip")
 SKDR_GPKG = Path(os.environ.get("GPR_SKDR", DATA / "bdot" / "skdr_krajowe.gpkg"))
@@ -23,10 +30,12 @@ DW_GPKG = Path(r"D:\QGIS\BODT10k\SKDR\skdr_wojewodzkie.gpkg")   # regional roads
 BOUNDARY_SHP = Path(r"D:\QGIS\BODT10k\granice_admin.shp")
 LAND_SHP = Path(r"D:\QGIS\dual_carriegeways\data\countries.shp")   # Natural Earth, land only
 
-SECTIONS_CSV = OUT / f"gpr{YEAR}_sections.csv"
-POINTS_GPKG = OUT / f"gpr{YEAR}_points.gpkg"
-GRAPH_PKL = OUT / ("skdr_graph.pkl" if YEAR == 2025 else f"skdr_graph_{YEAR}.pkl")
-NETWORK_GPKG = OUT / f"traffic_network_{YEAR}.gpkg"
+SECTIONS_CSV = OUT / f"gpr{TAG}_sections.csv"
+PIECES_CSV = OUT / f"gpr{TAG}_pieces.csv"
+POINTS_GPKG = OUT / f"gpr{TAG}_points.gpkg"
+GRAPH_PKL = OUT / ("skdr_graph.pkl" if TAG == "2025" else f"skdr_graph_{TAG}.pkl")
+NETWORK_GPKG = OUT / f"traffic_network_{TAG}.gpkg"
+DW_NETWORK_GPKG = OUT / f"traffic_network_{YEAR}_dw.gpkg"   # regional sections (GPR_NET=dw)
 GPR2010_DIR = RAW / "2010"   # Wykaz odcinków (Tablica 1) + SDR (Tablica 2) PDFs from the archive
 
 # --- linear referencing --------------------------------------------------------

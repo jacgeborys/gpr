@@ -255,7 +255,7 @@ def main():
     p01.locate_junctions(s)
 
     s.to_csv(config.SECTIONS_CSV, index=False, encoding="utf-8")
-    pieces.to_csv(config.OUT / f"gpr{config.YEAR}_pieces.csv", index=False, encoding="utf-8")
+    pieces.to_csv(config.PIECES_CSV, index=False, encoding="utf-8")
     g = gpd.GeoDataFrame(s.dropna(subset=["x"]), geometry=gpd.points_from_xy(
         s.dropna(subset=["x"]).x, s.dropna(subset=["x"]).y), crs=2180)
     g.to_file(config.POINTS_GPKG, layer="counting_points", driver="GPKG")

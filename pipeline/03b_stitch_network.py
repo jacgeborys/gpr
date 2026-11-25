@@ -194,7 +194,7 @@ def drop_superseded(unmeasured, sec):
 
 def main():
     sec = gpd.read_file(config.NETWORK_GPKG, layer="sections")
-    pcs = pd.read_csv(config.OUT / f"gpr{config.YEAR}_pieces.csv")
+    pcs = pd.read_csv(config.PIECES_CSV, dtype={"nr_drogi": str, "system": str, "road": str, "number": str})
     coords = {i: as_single(g) for i, g in zip(sec.index, sec.geometry)}
     added = defaultdict(float)
 

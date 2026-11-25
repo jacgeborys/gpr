@@ -62,7 +62,7 @@ def visible_gaps(s):
 
 def main():
     s = gpd.read_file(config.NETWORK_GPKG, layer="sections")
-    allsec = pd.read_csv(config.SECTIONS_CSV)
+    allsec = pd.read_csv(config.SECTIONS_CSV, dtype={"nr_drogi": str, "system": str, "road": str, "number": str})
     links = gpd.read_file(config.NETWORK_GPKG, layer="links")
     ok = s.len_ratio.between(0.8, 1.25)
 

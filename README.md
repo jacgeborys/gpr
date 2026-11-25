@@ -63,6 +63,17 @@ _Updated 2026-11-24_
   regional roads); 97.4% of nodes in one component. Dead ends > 3 km from the border: 34 on
   national roads, 590 on regional roads (they often end in towns).
 
+### GPR 2025 regional roads (work in progress)
+
+`set GPR_NET=dw` (config.NET) runs the 2025 steps on the regional tables
+(`Tab01_25_dw_KRAJ.xlsx`, `Tab02_25_dw_KRAJ.xlsx`: 3,305 sections, 3,263 with SDRR, one counting
+point each with coordinates) into separate files (`gpr2025_dw_*`, `skdr_graph_2025_dw.pkl`,
+`traffic_network_2025_dw.gpkg`). Step 02 builds the graph from BDOT regional roads plus the
+national ones (a regional section may run over a shared stretch); 'unmeasured' counts only the
+regional roads. Status 2026-11-25: 01 and 02 work (graph 369k nodes); step 03 ran out of
+memory on this 16 GB machine together with other programs — next: run it alone, or trim
+memory (graph edges keep geometry copies).
+
 ### GPR 2010 (work in progress)
 
 Current method (`set GPR_YEAR=2010`):

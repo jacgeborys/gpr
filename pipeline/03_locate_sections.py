@@ -174,7 +174,7 @@ def extend(a, d_target, ref_xy, road, number):
     return [XY[a]], "none"
 
 
-_SEC = pd.read_csv(config.SECTIONS_CSV)
+_SEC = pd.read_csv(config.SECTIONS_CSV, dtype={"nr_drogi": str, "system": str, "road": str, "number": str})
 _ROADREF = __import__("re").compile(r"(?<![A-Z0-9])(DK|S|A)\s?(\d+)")
 
 
@@ -524,8 +524,8 @@ def trim_at_shared_interchanges(gout, near_m=400, min_tail_m=300):
 
 
 def main():
-    sec = pd.read_csv(config.SECTIONS_CSV)
-    pcs = pd.read_csv(config.OUT / f"gpr{config.YEAR}_pieces.csv")
+    sec = pd.read_csv(config.SECTIONS_CSV, dtype={"nr_drogi": str, "system": str, "road": str, "number": str})
+    pcs = pd.read_csv(config.PIECES_CSV, dtype={"nr_drogi": str, "system": str, "road": str, "number": str})
     sec_by_id = sec.set_index("numer_odcinka")
 
     # runs of contiguous chainage per system

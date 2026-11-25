@@ -158,10 +158,47 @@ def resolve_split_sides(s):
           f"(one side kept)")
 
 
+# regional-road tables (GPR_NET=dw): one counting point per section, no E-number
+DW_TAB01_COLS = [
+    "numer_odcinka", "nr_drogi", "pik_pocz", "pik_konc", "dlugosc_km", "nazwa_odcinka",
+    "typ_odcinka", "pik_prawy", "lat_prawy", "lon_prawy", "y_cs92_prawy", "x_cs92_prawy",
+    "miejscowosc", "nr_woj", "nazwa_rejonu", "uwagi", "odcinek_gpr2020", "klasa_techniczna",
+    "x1", "x2", "szerokosc", "nr_kolejny",
+]
+DW_TAB02_COLS = [
+    "numer_odcinka", "nr_drogi", "pik_pocz", "pik_konc", "dlugosc_km", "nazwa_odcinka",
+    "typ_odcinka", "sdrr_total", "sdrr_motocykle", "sdrr_sam_osobowe", "sdrr_mikrobusy",
+    "sdrr_lekkie_ciezarowe", "sdrr_ciezarowe_bez", "sdrr_ciezarowe_z", "sdrr_autobusy",
+    "sdrr_ciagniki", "nr_woj", "kolejnosc", "uwagi_tab02",
+]
+
+
+def read_tables():
+    if config.NET != "dw":
+        t1 = pd.read_excel(config.GPR_TAB01, header=None, skiprows=11, names=TAB01_COLS)
+        t2 = pd.read_excel(config.GPR_TAB02, header=None, skiprows=10, names=TAB02_COLS)
+        return t1, t2
+    t1 = pd.read_excel(config.GPR_DW_TAB01, header=None, skiprows=11)
+    t1 = t1.iloc[:, :len(DW_TAB01_COLS)]
+    t1.columns = DW_TAB01_COLS[:t1.shape[1]]
+    t2 = pd.read_excel(config.GPR_DW_TAB02, header=None, skiprows=10)
+    t2 = t2.iloc[:, :len(DW_TAB02_COLS)]
+    t2.columns = DW_TAB02_COLS[:t2.shape[1]]
+    # same shape as the national table: the one point serves as both carriageway points
+    for a, b in (("pik_prawy", "pik_lewy"), ("lat_prawy", "lat_lewy"), ("lon_prawy", "lon_lewy"),
+                 ("y_cs92_prawy", "y_cs92_lewy"), ("x_cs92_prawy", "x_cs92_lewy")):
+        t1[b] = t1[a]
+    t1["nr_europejski"] = None
+    t1["nr_drogi"] = t1["nr_drogi"].map(lambda v: str(v).split(".")[0] if pd.notna(v) else v)
+    for c in TAB01_COLS:
+        if c not in t1:
+            t1[c] = np.nan
+    return t1[TAB01_COLS], t2
+
+
 def main():
     config.OUT.mkdir(exist_ok=True)
-    t1 = pd.read_excel(config.GPR_TAB01, header=None, skiprows=11, names=TAB01_COLS)
-    t2 = pd.read_excel(config.GPR_TAB02, header=None, skiprows=10, names=TAB02_COLS)
+    t1, t2 = read_tables()
     for t in (t1, t2):
         t["numer_odcinka"] = pd.to_numeric(t["numer_odcinka"], errors="coerce")
         t.dropna(subset=["numer_odcinka"], inplace=True)
@@ -224,7 +261,7 @@ def main():
           f"sections whose counting-point km lies outside the section: {(~s.pk_in_section).sum()}")
 
     s.to_csv(config.SECTIONS_CSV, index=False, encoding="utf-8")
-    pieces.to_csv(config.OUT / f"gpr{config.YEAR}_pieces.csv", index=False, encoding="utf-8")
+    pieces.to_csv(config.PIECES_CSV, index=False, encoding="utf-8")
     g = gpd.GeoDataFrame(s.dropna(subset=["x"]), geometry=gpd.points_from_xy(
         s.dropna(subset=["x"])["x"], s.dropna(subset=["x"])["y"]), crs=2180)
     g.to_file(config.POINTS_GPKG, layer="counting_points", driver="GPKG")

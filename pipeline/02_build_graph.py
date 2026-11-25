@@ -19,6 +19,7 @@ import pickle
 import geopandas as gpd
 import networkx as nx
 import numpy as np
+import pandas as pd
 from scipy.spatial import cKDTree
 from shapely.geometry import LineString
 from shapely.ops import substring
@@ -62,7 +63,7 @@ def osm_patches(skdr, G, node_xy, add_edge, next_id):
     added as edges with osm=True (costlier, see config.COST_OSM), and each loose end is
     tied to the nearest graph node within OSM_TIE_M. Returns the patch GeoDataFrame.
     """
-    if not config.OSM_GPKG.exists() or config.YEAR != 2025:
+    if not config.OSM_GPKG.exists() or config.YEAR != 2025 or config.NET == "dw":
         print("no OSM patches (no current OSM layer, or a past year built from OSM history)")
         return None
     from shapely.ops import unary_union
@@ -221,6 +222,20 @@ def main():
     skdr = gpd.read_file(config.SKDR_GPKG, layer="skdr_krajowe").to_crs(2180)
     skdr = skdr.explode(index_parts=False).reset_index(drop=True)
     skdr = skdr[skdr.geometry.geom_type == "LineString"].copy()
+    skdr["net"] = "dk"
+    if config.NET == "dw":
+        # regional roads (BDOT has no KAT_ISTNIE there: all operational) + national roads, so
+        # a section can run over a stretch shared with a national road (costlier: other road)
+        dw = gpd.read_file(config.DW_GPKG).to_crs(2180).explode(index_parts=False)
+        dw = dw[dw.geometry.geom_type == "LineString"].reset_index(drop=True)
+        dw["KAT_ISTNIE"] = "eksploatowany"
+        dw["net"] = "dw"
+        skdr = pd.concat([dw[["NUMER_DROG", "KAT_ISTNIE", "net", "geometry"]],
+                          skdr[["NUMER_DROG", "KAT_ISTNIE", "net", "geometry"]]],
+                         ignore_index=True)
+        skdr = gpd.GeoDataFrame(skdr, geometry="geometry", crs=2180)
+        print(f"regional network: {(skdr.net == 'dw').sum():,} regional + "
+              f"{(skdr.net == 'dk').sum():,} national pieces")
     if config.YEAR != 2025:
         pdf_net = config.DATA / f"pdf{config.YEAR}_network.gpkg"
         skdr = pdf_network(skdr, pdf_net) if pdf_net.exists() else past_network(skdr)
@@ -348,7 +363,10 @@ def main():
 
     with open(config.GRAPH_PKL, "wb") as f:
         pickle.dump({"G": G, "geoms": geoms, "node_xy": node_xy,
-                     "skdr_oper": skdr[oper].drop(columns=["tokens", "oper"]),
+                     # roads a section should cover ('unmeasured' if none does): in the
+                     # regional mode only the regional ones
+                     "skdr_oper": skdr[oper & (skdr.net == config.NET)].drop(
+                         columns=["tokens", "oper"]),
                      "skdr_other": skdr[~oper].drop(columns=["tokens", "oper"]),
                      "osm_patches": patches}, f)
     print(f"saved {config.GRAPH_PKL}")
