@@ -103,8 +103,10 @@ correct value, jump/short-high flags are real short town crossings (PRZEJŚCIE).
 2026-11-25: 40205 Koziegłowy–Siewierz (DK1) was lost by the table grid (merged cells) — step 01
 now parses such rows from the page text (1,793 sections). Stranded-section moves fixed DK2
 Mińsk–Kałuszyn, A2 Buk–Komorniki, Miechów, Żyrardów–Korytów; S-road neighbours placed the Grójec
-bypass and DK8 Marki. 1,780/1,793 sections on the map, 7 lines grey. The 13 left are mostly
-inside Warsaw/Poznań/Szczecin (labels only in the insets).
+bypass and DK8 Marki. 1,780/1,793 sections on the map, 7 lines grey. The 13 left off (~150 km,
+mostly low-traffic: DK26/31 around Chojna, DK10 Lubieszyn–Szczecin, DK6 Sławno–Słupsk, A4a,
+S11 Kórnik–Środa, DK36 Lubin–Ścinawa, bypasses of Tomaszów Maz./Prudnik/Opole, the 0.6 km
+Wrocław–Bielany stub) were not checked one by one; accepted as is.
 The earlier BDOT-based 2010 attempts (`02_build_graph.py` past_network / pdf_network, steps
 03/03b) are kept but give worse results.
 
