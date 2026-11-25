@@ -45,7 +45,9 @@ RETRY_DEV_M = 250     # … and are tried only when the national + regional trac
 # caches (re-runs of 03 change which section sits on a line, not the lines: traces are reused)
 ROADS_CACHE = config.OUT / "roads_cache_2010.pkl"   # road pieces as WKB (fast to load)
 TRACE_CACHE = config.OUT / "trace_cache_2010.pkl"   # line + junction nodes → trace
-PARAMS = (CORRIDOR_M, D0_M, END_R_M, MAX_DEV_M, LEN_RATIO, GAP_M, GAP_W, POWIAT_W, RETRY_DEV_M)
+OVERLAP_MAX, OVERLAP_W = 0.25, 4.0   # a trace sharing more of its length with others is
+                                    # retraced with the shared pieces costing OVERLAP_W ×
+PARAMS = (OVERLAP_MAX, OVERLAP_W, CORRIDOR_M, D0_M, END_R_M, MAX_DEV_M, LEN_RATIO, GAP_M, GAP_W, POWIAT_W, RETRY_DEV_M)
 
 
 def load_roads():
@@ -131,7 +133,7 @@ def junctions(lines, G, touch_m=600):
     return end_node
 
 
-def trace(line, s_node, t_node, G, geoms, tree, mult):
+def trace(line, s_node, t_node, G, geoms, tree, mult, avoid=None):
     """Cheapest road path between the two junction nodes, kept near the map line."""
     if s_node is None or t_node is None or s_node == t_node:
         return None
@@ -144,6 +146,9 @@ def trace(line, s_node, t_node, G, geoms, tree, mult):
     d = np.mean([shapely.distance(line, shapely.line_interpolate_point(ga, f, normalized=True))
                  for f in (0, 0.5, 1)], axis=0)
     w = lens * (1 + (d / D0_M) ** 2) * mult[cand]
+    if avoid is not None:   # pieces already used by another section's trace cost more
+        mid = shapely.line_interpolate_point(ga, 0.5, normalized=True)
+        w = np.where(shapely.distance(mid, avoid) < 15, w * OVERLAP_W, w)
     H = nx.Graph()
     for k, wk in zip(cand, w):
         a, b = key(geoms[k].coords[0]), key(geoms[k].coords[-1])
@@ -236,6 +241,35 @@ def retrace(lines, end_node, G, geoms, trees, mult):
             c[-1] = t_node
         out.append(LineString(c) if c[0] != c[-1] else line)
         how.append("pdf")
+    # overlap: two sections drawn on one road (Garwolin bypass 2 ran 2 km along Rębków–Garwolin
+    # before turning south): retrace the overlapping one, avoiding the other's road
+    n_ovl = 0
+    road = [i for i, h in enumerate(how) if h == "road"]
+    rt = STRtree([out[i] for i in road])
+    for a, i in enumerate(road):
+        others = [road[b] for b in rt.query(out[i].buffer(15)) if b != a]
+        if not others:
+            continue
+        av = shapely.union_all([out[j] for j in others]).buffer(15)
+        if out[i].intersection(av).length / out[i].length <= OVERLAP_MAX:
+            continue
+        ck = ("ovl", tuple(np.round(np.asarray(lines[i].coords)[:, :2]).astype(int).ravel()),
+              end_node[2 * i], end_node[2 * i + 1])
+        if ck not in cache:
+            alt = None
+            for tr in trees:
+                if tr is None:
+                    continue
+                a2 = trace(lines[i], end_node[2 * i], end_node[2 * i + 1], G, geoms, tr, mult,
+                           avoid=av)
+                if accept(a2, lines[i]) and a2.intersection(av).length / a2.length <= OVERLAP_MAX:
+                    alt = a2
+                    break
+            cache[ck] = shapely.to_wkb(alt) if alt is not None else None
+        if cache[ck] is not None:
+            out[i] = shapely.from_wkb(cache[ck])
+            n_ovl += 1
+    print(f"traces retraced off another section's road: {n_ovl}")
     with open(TRACE_CACHE, "wb") as f:
         pickle.dump(dict(params=PARAMS, traces=cache), f)
     print(f"traces from cache: {n_hit} of {len(lines)}; "

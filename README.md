@@ -101,7 +101,11 @@ Current method (`set GPR_YEAR=2010`):
    to the junction nodes), column `shape` = road / pdf. Where the national + regional trace
    is > 250 m from the map line on average, county roads (BDOT `skdr_powiatowe.gpkg`, 1.2×
    cost) are tried too and win if ≥ 30% closer: old routes demoted below regional (old DK17
-   NW of Lublin, next to today's S17). 97% of the length is traced (~27 min).
+   NW of Lublin, next to today's S17). A trace sharing > 25% of its length with other
+   sections' traces is retraced with those roads costing 4× (Garwolin bypass 2 had followed
+   Rębków–Garwolin before turning south). 97% of the length is traced. Traces and road pieces
+   are cached (`output/trace_cache_2010.pkl`, `roads_cache_2010.pkl`): the first run ~30 min,
+   re-runs only trace lines that changed.
    Writes `sections` / `skdr_unmeasured` with real shapes, keeps the map shapes as
    `sections_pdf` / `unmeasured_pdf` (step 08 uses those) and adds `regional_roads`.
    Re-running step 03 overwrites the gpkg: run 03c after it.
@@ -128,6 +132,9 @@ Then the last 13 off-map sections were debugged one by one:
   section length fits the line stays, the other moves to the nearest unlabelled line (fixed
   A4a Godzieszów–Bolesławiec and S7 at Białobrzegi, where the 1.2 km DK48 crossing's 5934 had
   taken the 10 km S7 line);
+- labels also carry the direction of their digits; when two labels compete for one line, the
+  one written across it wins ties (DK4 / DK77 at Jarosław). Only a tie-breaker: GDDKiA does not
+  always write values across the road (Skarżysko-Kam.);
 - a leftover section may also take an empty line that continues its road number and fits its
   length within 1.2× (S11 W. Kórnik Płd.–Środa Wlkp. between two DK11 lines);
 - a unique 5-digit label on a line of the right length overrides a far 2025-chainage point

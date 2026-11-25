@@ -168,8 +168,19 @@ def read_map_labels(s, raw, glyph, A, max_pt=14.0):
     reads = pl.read_labels(glyph, set(vals), cands)
     rl = [LineString(g) for g in raw]
     tr = STRtree(rl)
-    lab = pd.DataFrame(reads, columns=["px", "py", "label", "exact", "how"])
+    lab = pd.DataFrame(reads, columns=["px", "py", "label", "exact", "how", "ang"])
     lab["line"] = -1
+
+    def across(j, q, ang):
+        """|cos| of the angle between the text and the line at the label: 0 = text across the
+        line, 1 = along it. GDDKiA mostly writes values across their band; only a tie-breaker."""
+        if ang != ang:
+            return 0.5
+        f = rl[j].project(q)
+        p0 = rl[j].interpolate(max(f - 3, 0))
+        p1 = rl[j].interpolate(min(f + 3, rl[j].length))
+        return abs(np.cos(np.arctan2(p1.y - p0.y, p1.x - p0.x) % np.pi - ang))
+
     for k, (x, y) in enumerate(zip(lab.px, lab.py)):
         q = Point(x, y)
         hits = [j for j in tr.query(q.buffer(max_pt)) if rl[j].distance(q) <= max_pt]
@@ -186,8 +197,11 @@ def read_map_labels(s, raw, glyph, A, max_pt=14.0):
         if g.label.nunique() < 2:
             continue
         Lj = max(rl[j].length * abs(A[0, 0]) / 1000, 0.1)   # page pt → km (approx. scale)
+        # + text direction as a tie-breaker (Jarosław: DK4 crossing 16759 and DK77 4013 both fit
+        # the DK77 line; 4013 is written across it)
         fit = {k: min(abs(np.log(Lj / max(km, 0.1))) for km in km_of.get(lab.label[k], [Lj]))
-               + rl[j].distance(Point(lab.px[k], lab.py[k])) / 100 for k in g.index}
+               + rl[j].distance(Point(lab.px[k], lab.py[k])) / 100
+               + 0.3 * across(j, Point(lab.px[k], lab.py[k]), lab.ang[k]) for k in g.index}
         keep = min(fit, key=fit.get)
         for k in g.index:
             if lab.label[k] == lab.label[keep]:

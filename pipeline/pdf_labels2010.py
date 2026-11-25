@@ -227,7 +227,9 @@ def read_labels(pieces, table_values, cands=None, per_digit=250):
     """cands(x, y) → candidate value strings near a page point (optional).
     Each glyph group is segmented by decoding: every straight run of glyphs in it is read, and
     the longest runs that read as a table value (free or decoded) are taken, best first, without
-    sharing glyphs. A group with no such run is reported once with its free reading."""
+    sharing glyphs. A group with no such run is reported once with its free reading.
+    → (x, y, text, exact, how, angle): angle = direction of the run of digits (rad, 0..pi);
+    GDDKiA writes the values across their road, so it tells which of two lines a label belongs to."""
     z = np.load(BANK)
     Eb, lab = _blur(z["X"].astype(np.float32) / 255), z["y"]
     # drop bank exemplars that their own neighbours disagree with (accidental exact reads)
@@ -239,6 +241,14 @@ def read_labels(pieces, table_values, cands=None, per_digit=250):
     Eb, lab = Eb[keep], lab[keep]
     glyphs, gpts = _glyphs(pieces)
     out = []
+
+    def angle(pts):
+        if len(pts) < 2:
+            return np.nan
+        q = pts - pts.mean(0)
+        vx, vy = np.linalg.svd(q, full_matrices=False)[2][0]
+        return float(np.arctan2(vy, vx) % np.pi)
+
     for v in _group(gpts, glyphs, pieces):
         c = np.array([gpts[k].mean(0) for k in v])
         runs = _chains(c)
@@ -256,11 +266,11 @@ def read_labels(pieces, table_values, cands=None, per_digit=250):
         for _, _, _, ch, ctr, txt, how in sorted(found, key=lambda f: f[:3]):
             if used.isdisjoint(ch):
                 used |= set(ch)
-                out.append((ctr[0], ctr[1], txt, True, how))
+                out.append((ctr[0], ctr[1], txt, True, how, angle(c[list(ch)])))
         if not used and runs:   # nothing readable: report the longest run as read
             ch = max(runs, key=len)
             ctr, ims = _chain_ims(pieces, glyphs, gpts, [v[k] for k in ch])
             if 3 <= len(ims) <= 6:
                 txt, how, _ = _decode(ims, ctr, Eb, lab, table_values, None)
-                out.append((ctr[0], ctr[1], txt, False, "none"))
+                out.append((ctr[0], ctr[1], txt, False, "none", angle(c[list(ch)])))
     return out
