@@ -37,6 +37,7 @@ CITIES = {"Warszawa": (21.01, 52.23), "Kraków": (19.94, 50.06), "Łódź": (19.
           "Szczecin": (14.55, 53.43), "Katowice": (19.02, 50.26), "Lublin": (22.57, 51.25),
           "Białystok": (23.16, 53.13), "Rzeszów": (22.00, 50.04), "Bydgoszcz": (18.01, 53.12),
           "Olsztyn": (20.49, 53.78), "Kielce": (20.63, 50.87), "Zielona Góra": (15.51, 51.94)}
+LABEL_BELOW = {"Rzeszów", "Olsztyn"}   # labelled bottom right so they don't cover the A4 / S51-S16
 
 
 def use_font():
@@ -144,7 +145,9 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None):
                                            [c[1] for c in CITIES.values()]), crs=4326).to_crs(2180)
     for name, p in zip(CITIES, pts):
         ax.plot(p.x, p.y, "o", ms=3, color=t["text"], zorder=5)
-        ax.annotate(name, (p.x, p.y), xytext=(5, 4), textcoords="offset points", fontsize=9,
+        below = name in LABEL_BELOW   # label bottom right, off a road running east-west
+        ax.annotate(name, (p.x, p.y), xytext=(5, -4 if below else 4), textcoords="offset points",
+                    fontsize=9, va="top" if below else "baseline",
                     color=t["text"], zorder=6, fontweight="medium",
                     path_effects=[matplotlib.patheffects.withStroke(linewidth=2.5,
                                                                     foreground=t["bg"])])
