@@ -79,6 +79,13 @@ Legend (all maps): one entry "drogi bez danych (głównie odcinki w miastach)" f
 without data (national and regional); dotted "odcinki bez pomiaru w 2025" (GPR sections opened after the count or recounted in
 2026) only where such sections exist (2025: 22 sections, 134 km); cities with powiat
 rights keyed by an irregular blob, not a bar.
+**Truck maps** (`06_render_cartogram.py --dw --trucks`; trucks = samochody ciężarowe bez + z
+przyczepą, buses and vans not included): `cartogram_2025_dkdw_trucks_*.png`, where width ∝ SDRR in blue
+with a red core whose width is the truck share of that line (lines drawn in chunks, each
+chunk's lines then their cores, so thin roads' cores don't cross motorways), and
+`cartogram_2025_dkdw_truckshare_*.png`, where width ∝ SDRR and colour = truck share
+(<5 / 10 / 15 / 20 / 30 / >30 %, blue → red). Median truck share: 12% on national roads,
+5% on regional roads.
 Not yet: 03b stitching for regional sections, a closer look at the 'foreign' / 'scale' flags.
 
 ### GPR 2010 regional roads

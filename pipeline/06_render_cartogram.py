@@ -5,6 +5,11 @@ SDRR_COLORS_*: each class colour at its class middle, as in the legend), font Ba
 
 Reads : output/traffic_network_2025.gpkg, config.BOUNDARY_SHP
 Writes: output/cartogram_2025_light.png, output/cartogram_2025_dark.png
+
+--trucks (with --dw): two truck maps (trucks = samochody ciężarowe bez + z przyczepą):
+  cartogram_<year>_dkdw_trucks_*.png      width ∝ SDRR in the 'other vehicles' colour with a
+                                          truck-coloured core, core width / line width = truck share
+  cartogram_<year>_dkdw_truckshare_*.png  width ∝ SDRR, colour = truck share (TRUCK_SHARE_BREAKS)
 """
 import sys
 
@@ -37,6 +42,12 @@ CITIES = {"Warszawa": (21.01, 52.23), "Kraków": (19.94, 50.06), "Łódź": (19.
           "Szczecin": (14.55, 53.43), "Katowice": (19.02, 50.26), "Lublin": (22.57, 51.25),
           "Białystok": (23.16, 53.13), "Rzeszów": (22.00, 50.04), "Bydgoszcz": (18.01, 53.12),
           "Olsztyn": (20.49, 53.78), "Kielce": (20.63, 50.87), "Zielona Góra": (15.51, 51.94)}
+# truck maps: colours of the composition map and the share classes of the share map
+TRUCK_COLORS = {"light": dict(car="#7fb0dc", truck="#d0312d"),
+                "dark": dict(car="#2f8fb3", truck="#ff6a55")}
+TRUCK_SHARE_BREAKS = [0.05, 0.10, 0.15, 0.20, 0.30]
+TRUCK_SHARE_RAMP = {"light": ["#2a6fbb", "#5f78c6", "#9068b6", "#c2519a", "#de3a57", "#a8121c"],
+                    "dark": ["#3fa7d6", "#6f9be6", "#a98be6", "#e27ac4", "#ff6b7d", "#ff3b30"]}
 LABEL_BELOW = {"Rzeszów", "Olsztyn"}   # labelled bottom right so they don't cover the A4 / S51-S16
 
 
@@ -48,11 +59,11 @@ def use_font():
         print(f"font {FONT_FILE} not found, using the default")
 
 
-def smooth_color(v, ramp):
+def smooth_color(v, ramp, breaks=None, vmax=SDRR_MAX):
     """Continuous colour: each class colour sits at its class middle (the legend swatch value)
     and colours blend linearly in between, so local differences inside a class show."""
     from matplotlib.colors import to_rgb
-    b = [0] + config.SDRR_BREAKS + [SDRR_MAX]
+    b = [0] + (config.SDRR_BREAKS if breaks is None else breaks) + [vmax]
     mids = [(lo + hi) / 2 for lo, hi in zip(b[:-1], b[1:])]
     if v <= mids[0]:
         return to_rgb(ramp[0])
@@ -103,7 +114,7 @@ class BlobHandler:
         return poly
 
 
-def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None):
+def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None, mode=None):
     t = THEMES[theme]
     # frame = country bounds + small margins (extra on top for the title over the Baltic);
     # the axes fill the whole figure, so Poland fills the frame
@@ -129,17 +140,40 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None):
                                      colors=t["ctx"], linewidths=1.0, linestyles=(0, (1, 1.2)),
                                      zorder=3))
     data = sec[sec.sdrr_total.notna()]
+    cols = ["sdrr_total", "trucks", "geometry"]
     if dwsec is not None:   # regional sections share the scale; thick lines drawn on top
-        data = pd.concat([data[["sdrr_total", "geometry"]], dwsec[["sdrr_total", "geometry"]]])
+        data = pd.concat([data[cols], dwsec[cols]])
     data = data.sort_values("sdrr_total")
-    lines, ws, cs = [], [], []
-    for g, v in zip(data.geometry, data.sdrr_total):
-        for s in segs(g):
-            lines.append(s)
-            ws.append(width(v))
-            cs.append(smooth_color(v, t["ramp"]))
-    ax.add_collection(LineCollection(lines, linewidths=ws, colors=cs, capstyle="round",
-                                     joinstyle="round", zorder=4))
+    if mode == "trucks":
+        # composition: line in the 'other vehicles' colour, truck core inside it. Drawn in
+        # chunks (lines, then their cores) so thin roads' cores do not cross thick roads
+        tc = TRUCK_COLORS[theme]
+        chunk = 400
+        for i in range(0, len(data), chunk):
+            part = data.iloc[i:i + chunk]
+            lines, ws, cws = [], [], []
+            for g, v, tr in zip(part.geometry, part.sdrr_total, part.trucks):
+                for s in segs(g):
+                    lines.append(s)
+                    ws.append(width(v))
+                    cws.append(width(v) * min(tr / v, 1.0))
+            z = 4 + i / len(data)
+            ax.add_collection(LineCollection(lines, linewidths=ws, colors=tc["car"],
+                                             capstyle="round", joinstyle="round", zorder=z))
+            ax.add_collection(LineCollection(lines, linewidths=cws, colors=tc["truck"],
+                                             capstyle="round", joinstyle="round",
+                                             zorder=z + 0.5 * chunk / len(data)))
+    else:
+        lines, ws, cs = [], [], []
+        for g, v, tr in zip(data.geometry, data.sdrr_total, data.trucks):
+            c = (smooth_color(tr / v, TRUCK_SHARE_RAMP[theme], TRUCK_SHARE_BREAKS, 0.4)
+                 if mode == "truckshare" else smooth_color(v, t["ramp"]))
+            for s in segs(g):
+                lines.append(s)
+                ws.append(width(v))
+                cs.append(c)
+        ax.add_collection(LineCollection(lines, linewidths=ws, colors=cs, capstyle="round",
+                                         joinstyle="round", zorder=4))
 
     pts = gpd.GeoSeries(gpd.points_from_xy([c[0] for c in CITIES.values()],
                                            [c[1] for c in CITIES.values()]), crs=4326).to_crs(2180)
@@ -158,22 +192,68 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None):
     ax.axis("off")
 
     title = "krajowych i wojewódzkich" if dwsec is not None else "krajowych"
-    fig.text(0.025, 0.965, f"Ruch na drogach {title} {config.YEAR}", fontsize=24,
-             color=t["text"], va="top")
-    fig.text(0.025, 0.935, "Średni dobowy ruch roczny (SDRR), pojazdy/dobę · Generalny Pomiar Ruchu "
-             f"GDDKiA {config.YEAR}", fontsize=11, color=t["text2"], va="top")
+    head = {None: f"Ruch na drogach {title} {config.YEAR}",
+            "trucks": f"Samochody ciężarowe na drogach {title} {config.YEAR}",
+            "truckshare": f"Udział samochodów ciężarowych na drogach {title} {config.YEAR}"}[mode]
+    sub = {None: "Średni dobowy ruch roczny (SDRR), pojazdy/dobę",
+           "trucks": "Szerokość linii: SDRR (wszystkie pojazdy), czerwony rdzeń: samochody ciężarowe",
+           "truckshare": "Kolor: udział samochodów ciężarowych w SDRR, szerokość linii: SDRR"}[mode]
+    fig.text(0.025, 0.965, head, fontsize=24, color=t["text"], va="top")
+    fig.text(0.025, 0.935, f"{sub} · Generalny Pomiar Ruchu GDDKiA {config.YEAR}", fontsize=11,
+             color=t["text2"], va="top")
 
-    # class legend: colour + width of each class (width at the class middle), flat ends
-    b = [0] + config.SDRR_BREAKS + [SDRR_MAX]
-    mids = [(lo + hi) / 2 for lo, hi in zip(b[:-1], b[1:])]
-    handles = [Line2D([], [], color=c, lw=width(m), solid_capstyle="butt", label=lab)
-               for c, m, lab in zip(t["ramp"], mids, class_labels())][::-1]
+    fmt = lambda v: f"{v:,.0f}".replace(",", " ")
+    if mode is None:
+        # class legend: colour + width of each class (width at the class middle), flat ends
+        b = [0] + config.SDRR_BREAKS + [SDRR_MAX]
+        mids = [(lo + hi) / 2 for lo, hi in zip(b[:-1], b[1:])]
+        handles = [Line2D([], [], color=c, lw=width(m), solid_capstyle="butt", label=lab)
+                   for c, m, lab in zip(t["ramp"], mids, class_labels())][::-1]
+        leg_title = "SDRR [pojazdy/dobę]"
+    elif mode == "trucks":
+        tc = TRUCK_COLORS[theme]
+        handles = [Line2D([], [], color=tc["car"], lw=width(v), solid_capstyle="butt",
+                          label=fmt(v)) for v in (100_000, 50_000, 20_000, 5_000)]
+        leg_title = "SDRR [pojazdy/dobę]"
+    else:
+        ramp = TRUCK_SHARE_RAMP[theme]
+        b = [0] + TRUCK_SHARE_BREAKS
+        labs = ([f"< {b[1]:.0%}"] + [f"{lo:.0%} – {hi:.0%}" for lo, hi in zip(b[1:-1], b[2:])]
+                + [f"> {b[-1]:.0%}"])
+        handles = [Line2D([], [], color=c, lw=5, solid_capstyle="butt", label=lab)
+                   for c, lab in zip(ramp, labs)][::-1]
+        leg_title = "Udział samochodów ciężarowych"
     leg = ax.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.01, 0.035),
                     frameon=False, fontsize=9.5, labelcolor=t["text2"],
-                    title="SDRR [pojazdy/dobę]", title_fontsize=11, handlelength=3.4,
+                    title=leg_title, title_fontsize=11, handlelength=3.4,
                     borderaxespad=0.2, alignment="left")
     leg.get_title().set_color(t["text"])
     ax.add_artist(leg)
+    if mode == "trucks":
+        # composition key: a fixed-width line with cores for a few truck shares
+        from matplotlib.legend_handler import HandlerTuple
+        kw = 8.0
+        shares = (0.4, 0.2, 0.1)
+        comp = [(Line2D([], [], color=tc["car"], lw=kw, solid_capstyle="butt"),
+                 Line2D([], [], color=tc["truck"], lw=kw * sh, solid_capstyle="butt"))
+                for sh in shares]
+        leg3 = ax.legend(handles=comp, labels=[f"{sh:.0%} ciężarowych" for sh in shares],
+                         handler_map={tuple: HandlerTuple(ndivide=1)},
+                         loc="lower left", bbox_to_anchor=(0.01, 0.13), frameon=False,
+                         fontsize=9.5, labelcolor=t["text2"], handlelength=3.4,
+                         title="Udział samochodów ciężarowych", title_fontsize=11,
+                         borderaxespad=0.2, alignment="left", labelspacing=0.9)
+        leg3.get_title().set_color(t["text"])
+        ax.add_artist(leg3)
+    if mode == "truckshare":
+        wh = [Line2D([], [], color=t["text2"], lw=width(v), solid_capstyle="butt", label=fmt(v))
+              for v in (100_000, 30_000, 5_000)]
+        leg4 = ax.legend(handles=wh, loc="lower left", bbox_to_anchor=(0.01, 0.16),
+                         frameon=False, fontsize=9.5, labelcolor=t["text2"],
+                         title="SDRR [pojazdy/dobę]", title_fontsize=11, handlelength=3.4,
+                         borderaxespad=0.2, alignment="left")
+        leg4.get_title().set_color(t["text"])
+        ax.add_artist(leg4)
     # context legend (next to the class legend, over Czechia): one entry for every road
     # without data, dotted GPR sections without a result (only if any), cities as a blob
     ctx_h = [Line2D([], [], color=t["ctx"], lw=1.2, solid_capstyle="butt",
@@ -192,7 +272,8 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None):
                      borderaxespad=0.2, handler_map=handler_map, labelspacing=0.9)
     fig.text(0.025, 0.015, f"Dane: GDDKiA GPR {config.YEAR}, BDOT10k (GUGiK), OpenStreetMap · "
              f"© {config.AUTHOR}, autorzy OpenStreetMap", fontsize=7.5, color=t["text2"], ha="left")
-    out = config.OUT / f"cartogram_{config.YEAR}{'_dkdw' if dwsec is not None else ''}_{theme}.png"
+    out = config.OUT / (f"cartogram_{config.YEAR}{'_dkdw' if dwsec is not None else ''}"
+                        f"{'_' + mode if mode else ''}_{theme}.png")
     fig.savefig(out, facecolor=t["bg"])
     plt.close(fig)
     print(f"saved {out}")
@@ -235,8 +316,13 @@ def main():
         dwsec = gpd.read_file(config.DW_NETWORK_GPKG, layer="sections")
         dwsec = dwsec[dwsec.sdrr_total.notna()]
         print(f"regional sections: {len(dwsec)}")
-    for theme in THEMES:
-        render(theme, sec, ctx, dw, voiv, country, cities, dwsec)
+    for d in (sec, dwsec):
+        if d is not None:   # trucks = samochody ciężarowe bez + z przyczepą
+            d["trucks"] = d.sdrr_ciezarowe_bez.fillna(0) + d.sdrr_ciezarowe_z.fillna(0)
+    modes = ["trucks", "truckshare"] if "--trucks" in sys.argv else [None]
+    for mode in modes:
+        for theme in THEMES:
+            render(theme, sec, ctx, dw, voiv, country, cities, dwsec, mode)
 
 
 if __name__ == "__main__":
