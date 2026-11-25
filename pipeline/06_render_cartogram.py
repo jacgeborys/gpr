@@ -83,6 +83,25 @@ def segs(geom):
     return [np.asarray(p.coords)[:, :2] for p in parts]
 
 
+class BlobHandler:
+    """Legend key for city areas: an irregular blob, so it does not read as a wide line."""
+    SHAPE = [(0.05, 0.45), (0.12, 0.15), (0.35, 0.0), (0.55, 0.12), (0.8, 0.02), (0.97, 0.3),
+             (0.88, 0.62), (0.95, 0.9), (0.62, 1.0), (0.42, 0.82), (0.18, 0.95), (0.0, 0.72)]
+
+    def legend_artist(self, legend, orig_handle, fontsize, handlebox):
+        from matplotlib.patches import Polygon
+        x0, y0 = handlebox.xdescent, handlebox.ydescent
+        w, h = handlebox.width, handlebox.height * 1.6
+        x0 += w * 0.2
+        w *= 0.6
+        y0 -= handlebox.height * 0.3
+        poly = Polygon([(x0 + px * w, y0 + py * h) for px, py in self.SHAPE], closed=True,
+                       facecolor=orig_handle.get_facecolor(), edgecolor="none",
+                       transform=handlebox.get_transform())
+        handlebox.add_artist(poly)
+        return poly
+
+
 def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None):
     t = THEMES[theme]
     # frame = country bounds + small margins (extra on top for the title over the Baltic);
@@ -152,20 +171,22 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None):
                     borderaxespad=0.2, alignment="left")
     leg.get_title().set_color(t["text"])
     ax.add_artist(leg)
-    # context legend (next to the class legend, over Czechia)
-    ctx_h = [Line2D([], [], color=t["ctx"], lw=1.4, solid_capstyle="butt",
-                    label="drogi krajowe bez pomiaru GPR\n(głównie odcinki w miastach)")]
-    if dw is not None and len(dw):
-        ctx_h.append(Line2D([], [], color=t["ctx"], lw=0.5, solid_capstyle="butt",
-                            label="drogi wojewódzkie bez pomiaru GPR" if dwsec is not None
-                            else "drogi wojewódzkie (bez danych o ruchu)"))
+    # context legend (next to the class legend, over Czechia): one entry for every road
+    # without data, dotted GPR sections without a result (only if any), cities as a blob
+    ctx_h = [Line2D([], [], color=t["ctx"], lw=1.2, solid_capstyle="butt",
+                    label="drogi bez danych\n(głównie odcinki w miastach)")]
+    if len(nodata):
+        ctx_h.append(Line2D([], [], color=t["ctx"], lw=1.2, linestyle=(0, (1, 1.2)),
+                            label="odcinki bez wyniku GPR (otwarte po\npomiarze lub pomiar w 2026)"))
+    handler_map = {}
     if cities is not None and len(cities):
         from matplotlib.patches import Patch
-        ctx_h.append(Patch(facecolor=t["city"], edgecolor="none",
-                           label="miasta na prawach powiatu"))
+        city_h = Patch(facecolor=t["city"], edgecolor="none", label="miasta na prawach powiatu")
+        ctx_h.append(city_h)
+        handler_map[city_h] = BlobHandler()
     leg2 = ax.legend(handles=ctx_h, loc="lower left", bbox_to_anchor=(0.175, 0.035),
                      frameon=False, fontsize=9, labelcolor=t["text2"], handlelength=3.4,
-                     borderaxespad=0.2)
+                     borderaxespad=0.2, handler_map=handler_map, labelspacing=0.9)
     fig.text(0.025, 0.015, f"Dane: GDDKiA GPR {config.YEAR}, BDOT10k (GUGiK), OpenStreetMap · "
              f"© {config.AUTHOR}, autorzy OpenStreetMap", fontsize=7.5, color=t["text2"], ha="left")
     out = config.OUT / f"cartogram_{config.YEAR}{'_dkdw' if dwsec is not None else ''}_{theme}.png"
