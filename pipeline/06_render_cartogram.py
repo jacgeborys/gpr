@@ -45,6 +45,7 @@ CITIES = {"Warszawa": (21.01, 52.23), "Kraków": (19.94, 50.06), "Łódź": (19.
 # truck maps: colours of the composition map and the share classes of the share map
 TRUCK_COLORS = {"light": dict(car="#7fb0dc", truck="#d0312d"),
                 "dark": dict(car="#2f8fb3", truck="#ff6a55")}
+CORE_MIN_PT = 0.45   # truck cores thinner than ~1.25 px (at 200 dpi) are left out: they'd blend
 TRUCK_SHARE_BREAKS = [0.05, 0.10, 0.15, 0.20, 0.30]
 TRUCK_SHARE_RAMP = {"light": ["#2a6fbb", "#5f78c6", "#9068b6", "#c2519a", "#de3a57", "#a8121c"],
                     "dark": ["#3fa7d6", "#6f9be6", "#a98be6", "#e27ac4", "#ff6b7d", "#ff3b30"]}
@@ -151,17 +152,21 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None, mode=Non
         chunk = 400
         for i in range(0, len(data), chunk):
             part = data.iloc[i:i + chunk]
-            lines, ws, cws = [], [], []
+            lines, ws, cores, cws = [], [], [], []
             for g, v, tr in zip(part.geometry, part.sdrr_total, part.trucks):
+                cw = width(v) * min(tr / v, 1.0)
                 for s in segs(g):
                     lines.append(s)
                     ws.append(width(v))
-                    cws.append(width(v) * min(tr / v, 1.0))
+                    if cw >= CORE_MIN_PT:   # thinner cores antialias into purple: not drawn
+                        cores.append(s)
+                        cws.append(cw)
             z = 4 + i / len(data)
             ax.add_collection(LineCollection(lines, linewidths=ws, colors=tc["car"],
                                              capstyle="round", joinstyle="round", zorder=z))
-            ax.add_collection(LineCollection(lines, linewidths=cws, colors=tc["truck"],
+            ax.add_collection(LineCollection(cores, linewidths=cws, colors=tc["truck"],
                                              capstyle="round", joinstyle="round",
+                                             antialiased=False,   # pure red, no blend into blue
                                              zorder=z + 0.5 * chunk / len(data)))
     else:
         lines, ws, cs = [], [], []

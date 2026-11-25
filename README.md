@@ -82,7 +82,9 @@ rights keyed by an irregular blob, not a bar.
 **Truck maps** (`06_render_cartogram.py --dw --trucks`; trucks = samochody ciężarowe bez + z
 przyczepą, buses and vans not included): `cartogram_2025_dkdw_trucks_*.png`, where width ∝ SDRR in blue
 with a red core whose width is the truck share of that line (lines drawn in chunks, each
-chunk's lines then their cores, so thin roads' cores don't cross motorways), and
+chunk's lines then their cores, so thin roads' cores don't cross motorways; cores are one flat
+red without anti-aliasing, and cores under `CORE_MIN_PT` = 0.45 pt are not drawn because they
+would blend into purple), and
 `cartogram_2025_dkdw_truckshare_*.png`, where width ∝ SDRR and colour = truck share
 (<5 / 10 / 15 / 20 / 30 / >30 %, blue → red). Median truck share: 12% on national roads,
 5% on regional roads.
