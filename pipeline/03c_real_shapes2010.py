@@ -1,0 +1,213 @@
+"""
+03c_real_shapes2010.py — trace the 2010 map lines onto real road geometry.
+
+Step 03_pdf_sections2010 draws every section on GDDKiA's schematic 2010 map (georeferenced,
+median ~80 m but simplified). Here each map line is replaced by the cheapest path through
+today's national + regional roads (BDOT10k) between its two ends, where an edge costs its
+length × (1 + (distance from the map line / D0_M)²). So the path follows the road the 2010 map
+drew: where that road is regional now (a parallel expressway took the number), the regional
+road is closer to the 2010 line and wins over the expressway.
+A trace is kept only if it stays within MAX_DEV_M of the map line everywhere and its length is
+plausible (LEN_RATIO); otherwise the line keeps its PDF shape (column `shape` = 'pdf').
+
+Reads : output/traffic_network_2010.gpkg layers 'sections', 'skdr_unmeasured' (from step 03;
+        if 'sections_pdf' exists — a previous run — that is used as the source)
+        config.SKDR_GPKG (national roads), config.DW_GPKG (regional roads)
+Writes: output/traffic_network_2010.gpkg layers 'sections', 'skdr_unmeasured' (real shapes),
+        'sections_pdf', 'unmeasured_pdf' (the map shapes, for QA), 'regional_roads'
+"""
+import importlib
+
+import fiona
+import geopandas as gpd
+import networkx as nx
+import numpy as np
+import pandas as pd
+import shapely
+from shapely.geometry import LineString, MultiLineString
+from shapely.ops import linemerge
+from shapely.strtree import STRtree
+
+import config
+
+CORRIDOR_M = 3000     # road pieces considered: within this of the map line
+D0_M = 400            # distance at which an edge costs twice its length
+END_R_M = 1500        # path ends: road nodes within this of the map line's end
+END_W = 4.0           # cost per m of getting from the map line's end to the path's end node
+MAX_DEV_M = 2500      # accept: every point of the trace within this of the map line …
+LEN_RATIO = (0.7, 1.8)  # … and trace length / map-line length within this
+GAP_M, GAP_W = 1000, 5.0  # holes in the road data: straight jumps up to GAP_M, cost × GAP_W
+
+
+def road_graph():
+    nat = gpd.read_file(config.SKDR_GPKG).to_crs(2180)
+    dw = gpd.read_file(config.DW_GPKG).to_crs(2180)
+    geoms = [g for gdf in (nat, dw) for g in gdf.geometry.explode(index_parts=False)
+             if g is not None and g.geom_type == "LineString" and g.length > 0]
+    G = nx.Graph()
+    key = lambda c: (round(c[0]), round(c[1]))
+    for k, g in enumerate(geoms):
+        a, b = key(g.coords[0]), key(g.coords[-1])
+        if a != b and (not G.has_edge(a, b) or G[a][b]["len"] > g.length):
+            G.add_edge(a, b, eid=k, len=g.length)
+    print(f"road graph: {len(geoms):,} pieces (national {len(nat):,}, regional {len(dw):,}), "
+          f"{G.number_of_nodes():,} nodes")
+    return G, geoms
+
+
+def key(c):
+    return (round(c[0]), round(c[1]))
+
+
+def junctions(lines, G, touch_m=600):
+    """Ends of map lines that touch (< touch_m) form a junction; each junction gets one road
+    node, so the traced lines meeting there share it (no gaps). The node minimises the summed
+    distance to the incident map lines; real junctions (degree >= 3) are preferred."""
+    from scipy.sparse.csgraph import connected_components
+    from scipy.sparse import coo_matrix
+    from scipy.spatial import cKDTree
+    from shapely.geometry import Point
+    E = np.array([c for ln in lines for c in (ln.coords[0][:2], ln.coords[-1][:2])])
+    pr = np.array(list(cKDTree(E).query_pairs(touch_m)) or [(0, 0)])
+    n = len(E)
+    _, lab = connected_components(coo_matrix((np.ones(len(pr)), (pr[:, 0], pr[:, 1])), (n, n)),
+                                  directed=False)
+    nodes = np.array(list(G.nodes))
+    deg = np.array([G.degree(tuple(x)) for x in nodes])
+    nt = cKDTree(nodes)
+    end_node = [None] * n
+    for c in np.unique(lab):
+        idx = np.flatnonzero(lab == c)
+        cen = E[idx].mean(0)
+        cand = nt.query_ball_point(cen, END_R_M)
+        if not cand:
+            continue
+        inc = [lines[i // 2] for i in idx]
+        pts = shapely.points(nodes[cand])
+        score = sum(shapely.distance(pts, ln) for ln in inc) / len(inc) \
+            + 0.3 * np.hypot(*(nodes[cand] - cen).T) - 150 * (deg[cand] >= 3)
+        best = tuple(nodes[cand][int(np.argmin(score))])
+        for i in idx:
+            end_node[i] = best
+    print(f"junctions: {len(np.unique(lab))} (from {n} line ends), "
+          f"with a road node {sum(e is not None for e in end_node)} ends")
+    return end_node
+
+
+def trace(line, s_node, t_node, G, geoms, tree):
+    """Cheapest road path between the two junction nodes, kept near the map line."""
+    if s_node is None or t_node is None or s_node == t_node:
+        return None
+    cand = tree.query(line.buffer(CORRIDOR_M))
+    if not len(cand):
+        return None
+    ga = np.asarray(geoms, dtype=object)[cand]
+    lens = shapely.length(ga)
+    # mean distance of the piece from the map line (ends + middle)
+    d = np.mean([shapely.distance(line, shapely.line_interpolate_point(ga, f, normalized=True))
+                 for f in (0, 0.5, 1)], axis=0)
+    w = lens * (1 + (d / D0_M) ** 2)
+    H = nx.Graph()
+    for k, wk in zip(cand, w):
+        a, b = key(geoms[k].coords[0]), key(geoms[k].coords[-1])
+        if a != b and (not H.has_edge(a, b) or H[a][b]["w"] > wk):
+            H.add_edge(a, b, w=wk, eid=k)
+    if s_node not in H or t_node not in H:
+        return None
+    # holes in the road data (pieces not joined, or a stretch now a municipal road): a dead
+    # end may jump to any node within GAP_M, by a straight piece that costs GAP_W × its length
+    from scipy.spatial import cKDTree
+    hn = list(H.nodes)
+    xy = np.array(hn, float)
+    ht = cKDTree(xy)
+    for i in [i for i, u in enumerate(hn) if H.degree(u) == 1] + \
+             [hn.index(s_node), hn.index(t_node)]:
+        for j in ht.query_ball_point(xy[i], GAP_M):
+            if j != i and not H.has_edge(hn[i], hn[j]):
+                dd = float(np.hypot(*(xy[i] - xy[j])))
+                H.add_edge(hn[i], hn[j], w=GAP_W * dd + 50, eid=-1)
+    try:
+        path = nx.shortest_path(H, s_node, t_node, weight="w")
+    except nx.NetworkXNoPath:
+        return None
+    xy = []
+    for u, v in zip(path[:-1], path[1:]):
+        e = H[u][v]["eid"]
+        c = list(geoms[e].coords) if e >= 0 else [u, v]
+        if key(c[0]) != u:
+            c = c[::-1]
+        xy.extend(c if not xy else c[1:])
+    return LineString([p[:2] for p in xy]) if len(xy) > 1 else None
+
+
+def accept(new, line):
+    if new is None:
+        return False
+    r = new.length / max(line.length, 1)
+    if not LEN_RATIO[0] <= r <= LEN_RATIO[1]:
+        return False
+    return new.hausdorff_distance(line) <= MAX_DEV_M
+
+
+def retrace(lines, end_node, G, geoms, tree):
+    out, how = [], []
+    for k, line in enumerate(lines):
+        s_node, t_node = end_node[2 * k], end_node[2 * k + 1]
+        new = trace(line, s_node, t_node, G, geoms, tree) if line.length >= 300 else None
+        if accept(new, line):
+            out.append(new)
+            how.append("road")
+            continue
+        # kept as on the map, but its ends snapped to the junction nodes (no gaps)
+        c = [p[:2] for p in line.coords]
+        if s_node is not None:
+            c[0] = s_node
+        if t_node is not None:
+            c[-1] = t_node
+        out.append(LineString(c) if c[0] != c[-1] else line)
+        how.append("pdf")
+    return out, np.array(how)
+
+
+def as_line(g):
+    if g.geom_type == "LineString":
+        return LineString([p[:2] for p in g.coords])
+    m = linemerge(g)
+    return m if m.geom_type == "LineString" else max(m.geoms, key=lambda q: q.length)
+
+
+def main():
+    layers = fiona.listlayers(config.NETWORK_GPKG)
+    src_sec = "sections_pdf" if "sections_pdf" in layers else "sections"
+    src_unm = "unmeasured_pdf" if "unmeasured_pdf" in layers else "skdr_unmeasured"
+    sec = gpd.read_file(config.NETWORK_GPKG, layer=src_sec)
+    unm = gpd.read_file(config.NETWORK_GPKG, layer=src_unm)
+    sec.to_file(config.NETWORK_GPKG, layer="sections_pdf", driver="GPKG")
+    unm.to_file(config.NETWORK_GPKG, layer="unmeasured_pdf", driver="GPKG")
+    G, geoms = road_graph()
+    tree = STRtree(geoms)
+    lines = [as_line(g) for g in pd.concat([sec.geometry, unm.geometry])]
+    end_node = junctions(lines, G)
+    out, how = retrace(lines, end_node, G, geoms, tree)
+    n = len(sec)
+    new = sec.copy()
+    new["geometry"], new["shape"] = out[:n], how[:n]
+    new["geom_km"] = (new.length / 1000).round(3)
+    un2 = unm.copy()
+    un2["geometry"], un2["shape"] = out[n:], how[n:]
+    road = how == "road"
+    L = np.array([ln.length for ln in lines])
+    print(f"traced on roads: {road.sum()} of {len(lines)} lines ({L[road].sum() / L.sum():.0%} "
+          f"of length); kept as on the map (ends snapped): {(~road).sum()}")
+    new.to_file(config.NETWORK_GPKG, layer="sections", driver="GPKG")
+    un2.to_file(config.NETWORK_GPKG, layer="skdr_unmeasured", driver="GPKG")
+    # regional roads for the map (pieces along a 2010 national road are dropped)
+    importlib.import_module("04_build_network").regional_links(new, un2)
+    print(f"saved {config.NETWORK_GPKG.name}: sections, skdr_unmeasured (real shapes), "
+          f"sections_pdf, unmeasured_pdf, regional_roads")
+
+
+if __name__ == "__main__":
+    if config.YEAR != 2010:
+        raise SystemExit("set GPR_YEAR=2010")
+    main()

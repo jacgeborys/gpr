@@ -155,7 +155,10 @@ def draw(sec, labels, sus, A, r06, centres=None):
 
 def main():
     import matplotlib.patheffects  # noqa: F401
-    sec = gpd.read_file(config.NETWORK_GPKG, layer="sections")
+    import fiona
+    # the map's own line shapes (step 03c replaces 'sections' with real road shapes)
+    lay = "sections_pdf" if "sections_pdf" in fiona.listlayers(config.NETWORK_GPKG) else "sections"
+    sec = gpd.read_file(config.NETWORK_GPKG, layer=lay)
     ml = gpd.read_file(config.NETWORK_GPKG, layer="map_lines")
     labels = gpd.read_file(config.NETWORK_GPKG, layer="map_labels")
     with open(config.OUT / "pdf2010_cache.pkl", "rb") as f:

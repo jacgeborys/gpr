@@ -90,8 +90,20 @@ Current method (`set GPR_YEAR=2010`):
      line if it fits the length about as well. km-neighbours link a road and its expressway on
      the same chainage (DK7 → S7 at Grójec, DK8 → S8 at Radzymin). Empty lines are drawn as roads
      without a count.
-3. `06_render_cartogram.py` → `output/cartogram_2010_*.png`.
-4. `08_suspects2010.py` — QA: lists suspects (`output/qa_suspects2010.csv`: label read on the line
+3. `03c_real_shapes2010.py` — real road shapes: every map line is traced onto today's national
+   + regional roads (BDOT10k, `config.SKDR_GPKG` + `config.DW_GPKG`). Touching line ends form a
+   junction with one road node (nearest to all incident lines, real junctions preferred), so
+   traced lines meet without gaps; between its two nodes a line takes the cheapest path, an
+   edge costing length × (1 + (distance from the map line / 400 m)²) — where the 2010 road is
+   regional now (a parallel A/S road took the traffic) the regional road is closer and wins.
+   Holes in the road data are bridged by straight jumps ≤ 1 km (5× cost). Kept only within
+   2.5 km of the map line and 0.7–1.8× its length; otherwise the PDF shape stays (ends snapped
+   to the junction nodes), column `shape` = road / pdf. 96% of the length is traced (~7 min).
+   Writes `sections` / `skdr_unmeasured` with real shapes, keeps the map shapes as
+   `sections_pdf` / `unmeasured_pdf` (step 08 uses those) and adds `regional_roads`.
+   Re-running step 03 overwrites the gpkg: run 03c after it.
+4. `06_render_cartogram.py` → `output/cartogram_2010_*.png`.
+5. `08_suspects2010.py` — QA: lists suspects (`output/qa_suspects2010.csv`: label read on the line
    ≥ 2 edits from its value; >2× jump against all same-road neighbours; short high line) and
    draws `output/debug2010/NNN_<section>.png` (left: GDDKiA map crop, right: ours with values and
    label reads). `--at lon,lat ...` draws ad-hoc windows (`at_N.png`).
@@ -121,6 +133,11 @@ Then the last 13 off-map sections were debugged one by one:
 1,791/1,793 sections on the map, 1 line grey; 12 suspects left, all checked by eye (misreads
 at crowded junctions, real short town crossings). Off the map: S11 W. Kórnik Płd.–Środa Wlkp.
 (8.9 km, no chainage) and DK25 Nowe Skalmierzyce crossing (4.1 km) — no gap on the map.
+2026-11-25: real road shapes + regional roads (step 03c): 1,663 of 1,792 lines traced (96% of
+length), checked against the 2010 lines where an A/S road runs parallel (DK91 Gdańsk–Tczew,
+DK8 Oleśnica, DK7 Elbląg, DK1 Piotrków–Częstochowa, DK2 Września, Katowice): the traces stay on
+the old roads. Lines kept as on the map are mostly old routes that are now municipal roads
+(not in BDOT national/regional, e.g. old DK8 east of Oleśnica) and very short town pieces.
 The earlier BDOT-based 2010 attempts (`02_build_graph.py` past_network / pdf_network, steps
 03/03b) are kept but give worse results.
 
