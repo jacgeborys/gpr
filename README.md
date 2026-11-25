@@ -85,7 +85,11 @@ Current method (`set GPR_YEAR=2010`):
      others; a far read counts if a km-neighbour's value is read on a touching line) and
      continuity (Viterbi over touching lines). A section may stay off the map (cost 40) rather
      than fill a far line; then a **repair** pass puts such sections on empty lines touching
-     their km-neighbour's line. Empty lines are drawn as roads without a count.
+     their km-neighbour's line, and moves *stranded* sections (line touches none of their
+     km-neighbours' lines, no label confirms it, e.g. a namesake-village point) to such an empty
+     line if it fits the length about as well. km-neighbours link a road and its expressway on
+     the same chainage (DK7 → S7 at Grójec, DK8 → S8 at Radzymin). Empty lines are drawn as roads
+     without a count.
 3. `06_render_cartogram.py` → `output/cartogram_2010_*.png`.
 4. `08_suspects2010.py` — QA: lists suspects (`output/qa_suspects2010.csv`: label read on the line
    ≥ 2 edits from its value; >2× jump against all same-road neighbours; short high line) and
@@ -95,10 +99,12 @@ Current method (`set GPR_YEAR=2010`):
 Status (2026-11-24): fixed DK63 near Wisznice, the Wrocław value in Inowrocław, DK8 sections
 dropped in Marki/Jędrzejów/Kozienice, S7 on DK8 at Mszczonów, Dębica, Sieradz, Oleśnica. The 21
 remaining suspects were checked by eye: label flags are misreads in crowded junctions with a
-correct value, jump/short-high flags are real short town crossings (PRZEJŚCIE). ~21 sections
-stay off the map and ~16 lines are drawn grey, mostly around Warsaw, Poznań and Szczecin where
-the main map prints no labels (they are only in the insets). Next idea: read the three insets
-(own georeference) to place those.
+correct value, jump/short-high flags are real short town crossings (PRZEJŚCIE).
+2026-11-25: 40205 Koziegłowy–Siewierz (DK1) was lost by the table grid (merged cells) — step 01
+now parses such rows from the page text (1,793 sections). Stranded-section moves fixed DK2
+Mińsk–Kałuszyn, A2 Buk–Komorniki, Miechów, Żyrardów–Korytów; S-road neighbours placed the Grójec
+bypass and DK8 Marki. 1,780/1,793 sections on the map, 7 lines grey. The 13 left are mostly
+inside Warsaw/Poznań/Szczecin (labels only in the insets).
 The earlier BDOT-based 2010 attempts (`02_build_graph.py` past_network / pdf_network, steps
 03/03b) are kept but give worse results.
 

@@ -55,7 +55,48 @@ def read_table(path, cols):
                         r = [(str(c).replace("\n", " ").strip() if c is not None else None)
                              for c in r[:len(cols)]]
                         rows.append(r + [None] * (len(cols) - len(r)))
-    return pd.DataFrame(rows, columns=cols)
+    df = pd.DataFrame(rows, columns=cols)
+    return pd.concat([df, text_rows(path, cols, set(df.numer_odcinka), df)], ignore_index=True)
+
+
+NUM = r"\d+(?:,\d+)?"
+
+
+def text_rows(path, cols, have, df):
+    """Rows the table grid loses (merged cells leave the section number empty, e.g. 40205
+    Koziegłowy–Siewierz): parse their text line instead."""
+    out = []
+    head = rf"^(\d{{5}}) (\S+)(?: (E\d+))? ({NUM}) ({NUM}) ({NUM}) "
+    rejon = dict(zip(df.nr_rejonu, df.nazwa_rejonu)) if "nr_rejonu" in df else {}
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            for ln in (page.extract_text() or "").splitlines():
+                m = re.match(head, ln)
+                if not m or m.group(1) in have:
+                    continue
+                rest = ln[m.end():]
+                base = list(m.groups())
+                if "sdrr_total" in cols:          # Tablica 2: name + 9 counts
+                    t = re.fullmatch(r"(.+?)((?: \d+){9})", rest)
+                    if not t:
+                        continue
+                    r = base + [t.group(1).strip()] + t.group(2).split()
+                else:                             # Tablica 1: name typ km locality … rejon nr
+                    t = re.fullmatch(r"(.+?) ([GH]) (\S+) (.+) (\d{3}) (\d{5})(?: (\S+))?", rest)
+                    if not t:
+                        continue
+                    name, typ, pk, mid, nr, o05, sdr05 = t.groups()
+                    rn = rejon.get(nr, "")
+                    if rn and mid.endswith(" " + rn):
+                        mid = mid[:-len(rn) - 1]
+                    extra = None
+                    if mid.endswith(" *"):
+                        mid, extra = mid[:-2], "*"
+                    r = base + [name, typ, pk, mid, extra, rn, nr, o05, sdr05]
+                have.add(m.group(1))
+                out.append(r[:len(cols)])
+                print(f"  from text (lost by the table grid): {ln}")
+    return pd.DataFrame(out, columns=cols)
 
 
 def point_km(v):

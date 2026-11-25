@@ -306,12 +306,23 @@ def touching(lines, touch_m=TOUCH_M):
 
 
 def km_neighbours(s):
-    order = s.sort_values(["system", "pik_pocz"]).index
+    """Sections whose km ranges meet (within 1 km) on one road. A road and its expressway
+    share the chainage (DK7 Tarczyn–Grójec → S7 Grójec bypass, DK8 Marki → S8 Radzymin), so
+    'S7' and '7' count as one road; a same-system match is preferred. ('A' is not stripped:
+    A2 and DK2 have separate chainages.)"""
+    key = s.system.astype(str).str.replace(r"^S(?=\d)", "", regex=True)
     nb = {i: [] for i in s.index}
-    for a_, b_ in zip(order[:-1], order[1:]):
-        if s.system[a_] == s.system[b_] and abs(s.pik_pocz[b_] - s.pik_konc[a_]) <= 1.0:
-            nb[a_].append(b_)
-            nb[b_].append(a_)
+    for _, g in s.groupby(key):
+        g = g.dropna(subset=["pik_pocz", "pik_konc"])
+        for a_ in g.index:
+            cand = g[(g.index != a_) & ((g.pik_pocz - g.pik_konc[a_]).abs() <= 1.0)]
+            if not len(cand):
+                continue
+            same = cand[cand.system == s.system[a_]]
+            b_ = (same if len(same) else cand).pik_pocz.sub(g.pik_konc[a_]).abs().idxmin()
+            if b_ not in nb[a_]:
+                nb[a_].append(b_)
+                nb[b_].append(a_)
     return nb
 
 
@@ -325,20 +336,38 @@ def repair(s, lines, L, lab, max_len_ratio=2.5):
     touch = touching(lines)
     nb = km_neighbours(s)
     reads = lab[lab.line >= 0].groupby("line").agg(list)
-    n_fix = 0
-    changed = True
-    while changed:
-        changed = False
+    n_fix = n_move = 0
+
+    def confirmed(i, j):
+        v = str(int(s.sdrr_total[i]))
+        return j in reads.index and any(edits(t, v) <= 1 for t in reads.loc[j].label)
+
+    changed, rounds = True, 0
+    while changed and rounds < 10:
+        changed, rounds = False, rounds + 1
         used = set(s.line[s.line >= 0])
-        for i in s.index[(s.line < 0) & s.sdrr_total.notna()]:
+        # stranded: a placed section whose line touches none of its placed km-neighbours'
+        # lines and no label confirms it (a namesake-village point put it far away). It moves
+        # to an empty line next to a neighbour if one fits its length about as well; the
+        # line it leaves can then take a section that was left off.
+        stranded = []
+        for i in s.index[(s.line >= 0) & s.sdrr_total.notna()]:
+            placed = [s.line[k] for k in nb[i] if s.line[k] >= 0]
+            j0 = s.line[i]
+            if placed and not any(j0 == l or j0 in touch[l] for l in placed) \
+                    and not confirmed(i, j0):
+                stranded.append(i)
+        for i in s.index[(s.line < 0) & s.sdrr_total.notna()].tolist() + stranded:
             v = str(int(s.sdrr_total[i]))
             placed = [s.line[k] for k in nb[i] if s.line[k] >= 0]
+            j0 = s.line[i]
+            r0 = abs(np.log(max(L[j0], 0.1) / s.dlugosc_km[i])) if j0 >= 0 else np.inf
             best = None
             for j in set().union(*[touch[l] for l in placed]) if placed else ():
                 if j in used:
                     continue
                 r = abs(np.log(max(L[j], 0.1) / s.dlugosc_km[i]))
-                if r > np.log(max_len_ratio):
+                if r > np.log(max_len_ratio) or r > r0 + np.log(1.25):
                     continue
                 score = r - 0.5 * sum(j in touch[l] for l in placed)
                 if j in reads.index:
@@ -350,11 +379,17 @@ def repair(s, lines, L, lab, max_len_ratio=2.5):
                 if best is None or score < best[0]:
                     best = (score, j)
             if best:
+                if j0 >= 0:
+                    used.discard(j0)
+                    n_move += 1
+                    print(f"  moved {s.numer_odcinka[i]} {s.nazwa_odcinka[i]}: line {j0} → {best[1]}")
+                else:
+                    n_fix += 1
                 s.loc[i, "line"] = best[1]
                 used.add(best[1])
-                n_fix += 1
                 changed = True
-    print(f"repair: {n_fix} sections placed on empty lines next to their km-neighbours")
+    print(f"repair: {n_fix} sections placed on empty lines next to their km-neighbours, "
+          f"{n_move} stranded sections moved there")
     return s
 
 
