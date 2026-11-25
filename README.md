@@ -70,9 +70,12 @@ _Updated 2026-11-24_
 point each with coordinates) into separate files (`gpr2025_dw_*`, `skdr_graph_2025_dw.pkl`,
 `traffic_network_2025_dw.gpkg`). Step 02 builds the graph from BDOT regional roads plus the
 national ones (a regional section may run over a shared stretch); 'unmeasured' counts only the
-regional roads. Status 2026-11-25: 01 and 02 work (graph 369k nodes); step 03 ran out of
-memory on this 16 GB machine together with other programs — next: run it alone, or trim
-memory (graph edges keep geometry copies).
+regional roads. Status 2026-11-25: 3,262 of 3,305 sections placed (27,942 of 28,171 km; the
+43 left are mostly without SDRR or with no usable km/point), 2,671 with no QA flag. Step 03 takes
+~2 min but needs most of the 16 GB (close other programs). Map: `06_render_cartogram.py --dw`
+(GPR_NET unset) draws national + regional sections on one scale →
+`output/cartogram_2025_dkdw_{light,dark}.png`; the national-only map is unchanged.
+Not yet: 03b stitching for regional sections, a closer look at the 'foreign' / 'scale' flags.
 
 ### GPR 2010 (work in progress)
 

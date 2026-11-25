@@ -6,7 +6,10 @@ SDRR_COLORS_*: each class colour at its class middle, as in the legend), font Ba
 Reads : output/traffic_network_2025.gpkg, config.BOUNDARY_SHP
 Writes: output/cartogram_2025_light.png, output/cartogram_2025_dark.png
 """
+import sys
+
 import geopandas as gpd
+import pandas as pd
 import matplotlib
 
 matplotlib.use("Agg")
@@ -80,7 +83,7 @@ def segs(geom):
     return [np.asarray(p.coords)[:, :2] for p in parts]
 
 
-def render(theme, sec, ctx, dw, voiv, country, cities=None):
+def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None):
     t = THEMES[theme]
     # frame = country bounds + small margins (extra on top for the title over the Baltic);
     # the axes fill the whole figure, so Poland fills the frame
@@ -105,7 +108,10 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None):
     ax.add_collection(LineCollection([s for g in nodata.geometry for s in segs(g)],
                                      colors=t["ctx"], linewidths=1.0, linestyles=(0, (1, 1.2)),
                                      zorder=3))
-    data = sec[sec.sdrr_total.notna()].sort_values("sdrr_total")
+    data = sec[sec.sdrr_total.notna()]
+    if dwsec is not None:   # regional sections share the scale; thick lines drawn on top
+        data = pd.concat([data[["sdrr_total", "geometry"]], dwsec[["sdrr_total", "geometry"]]])
+    data = data.sort_values("sdrr_total")
     lines, ws, cs = [], [], []
     for g, v in zip(data.geometry, data.sdrr_total):
         for s in segs(g):
@@ -129,7 +135,8 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None):
     ax.set_aspect("equal")
     ax.axis("off")
 
-    fig.text(0.025, 0.965, f"Ruch na drogach krajowych {config.YEAR}", fontsize=24,
+    title = "krajowych i wojewódzkich" if dwsec is not None else "krajowych"
+    fig.text(0.025, 0.965, f"Ruch na drogach {title} {config.YEAR}", fontsize=24,
              color=t["text"], va="top")
     fig.text(0.025, 0.935, "Średni dobowy ruch roczny (SDRR), pojazdy/dobę · Generalny Pomiar Ruchu "
              f"GDDKiA {config.YEAR}", fontsize=11, color=t["text2"], va="top")
@@ -150,7 +157,8 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None):
                     label="drogi krajowe bez pomiaru GPR\n(głównie odcinki w miastach)")]
     if dw is not None and len(dw):
         ctx_h.append(Line2D([], [], color=t["ctx"], lw=0.5, solid_capstyle="butt",
-                            label="drogi wojewódzkie (bez danych o ruchu)"))
+                            label="drogi wojewódzkie bez pomiaru GPR" if dwsec is not None
+                            else "drogi wojewódzkie (bez danych o ruchu)"))
     if cities is not None and len(cities):
         from matplotlib.patches import Patch
         ctx_h.append(Patch(facecolor=t["city"], edgecolor="none",
@@ -160,7 +168,7 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None):
                      borderaxespad=0.2)
     fig.text(0.025, 0.015, f"Dane: GDDKiA GPR {config.YEAR}, BDOT10k (GUGiK), OpenStreetMap · "
              f"© {config.AUTHOR}, autorzy OpenStreetMap", fontsize=7.5, color=t["text2"], ha="left")
-    out = config.OUT / f"cartogram_{config.YEAR}_{theme}.png"
+    out = config.OUT / f"cartogram_{config.YEAR}{'_dkdw' if dwsec is not None else ''}_{theme}.png"
     fig.savefig(out, facecolor=t["bg"])
     plt.close(fig)
     print(f"saved {out}")
@@ -196,8 +204,15 @@ def main():
     if cities is not None and len(cities):
         # OSM city boundaries of Gdańsk / Gdynia / Szczecin … run into the sea: land only
         cities = gpd.clip(cities.to_crs(2180), country)
+    # --dw: national + regional sections (GPR_NET=dw output) on one map, written as
+    # cartogram_<year>_dkdw_*.png; without it the national-only map
+    dwsec = None
+    if "--dw" in sys.argv and config.DW_NETWORK_GPKG.exists():
+        dwsec = gpd.read_file(config.DW_NETWORK_GPKG, layer="sections")
+        dwsec = dwsec[dwsec.sdrr_total.notna()]
+        print(f"regional sections: {len(dwsec)}")
     for theme in THEMES:
-        render(theme, sec, ctx, dw, voiv, country, cities)
+        render(theme, sec, ctx, dw, voiv, country, cities, dwsec)
 
 
 if __name__ == "__main__":
