@@ -177,7 +177,7 @@ def render(theme, sec, ctx, dw, voiv, country, cities=None, dwsec=None):
                     label="drogi bez danych\n(głównie odcinki w miastach)")]
     if len(nodata):
         ctx_h.append(Line2D([], [], color=t["ctx"], lw=1.2, linestyle=(0, (1, 1.2)),
-                            label="odcinki bez wyniku GPR (otwarte po\npomiarze lub pomiar w 2026)"))
+                            label=f"odcinki bez pomiaru w {config.YEAR}"))
     handler_map = {}
     if cities is not None and len(cities):
         from matplotlib.patches import Patch

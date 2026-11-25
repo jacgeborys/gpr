@@ -76,8 +76,8 @@ regional roads. Status 2026-11-25: 3,262 of 3,305 sections placed (27,942 of 28,
 (GPR_NET unset) draws national + regional sections on one scale →
 `output/cartogram_2025_dkdw_{light,dark}.png`; the national-only map is unchanged.
 Legend (all maps): one entry "drogi bez danych (głównie odcinki w miastach)" for every road
-without data (national and regional); dotted "odcinki bez wyniku GPR (otwarte po pomiarze lub
-pomiar w 2026)" only where such sections exist (2025: 22 sections, 134 km); cities with powiat
+without data (national and regional); dotted "odcinki bez pomiaru w 2025" (GPR sections opened after the count or recounted in
+2026) only where such sections exist (2025: 22 sections, 134 km); cities with powiat
 rights keyed by an irregular blob, not a bar.
 Not yet: 03b stitching for regional sections, a closer look at the 'foreign' / 'scale' flags.
 
