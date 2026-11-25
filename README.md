@@ -88,8 +88,8 @@ would blend into purple), and
 `cartogram_2025_dkdw_truckshare_*.png`, where width ∝ SDRR and colour = truck share
 (<5 / 10 / 15 / 20 / 30 / >30 %, blue → red). The current share ramp barely changes lightness,
 so its middle classes merge for red–green colour-blind readers. Candidate ramps with a lightness
-step (`TRUCK_SHARE_VARIANTS` A/B/C, `--dw --ramp X` → `..._truckshare_X_*.png`, not committed)
-are under review. Median truck share: 12% on national roads,
+step (`TRUCK_SHARE_VARIANTS` A/B/C/D, D = current ends with re-spaced middle classes; `--dw --ramp X` → `..._truckshare_X_*.png`, not committed)
+were tried; the current ramp was kept (2026-11-25): the vivid middle hues that make it look good are the same ones that merge, and the alternatives look duller. Median truck share: 12% on national roads,
 5% on regional roads.
 Not yet: 03b stitching for regional sections, a closer look at the 'foreign' / 'scale' flags.
 

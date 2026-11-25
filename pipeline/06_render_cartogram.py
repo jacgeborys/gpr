@@ -58,6 +58,9 @@ TRUCK_SHARE_VARIANTS = {
           "dark": ["#2b568b", "#655eb3", "#aa62ba", "#e669aa", "#fe8f90", "#febab4"]},
     "C": {"light": ["#418ad1", "#78b3d6", "#fc9e47", "#e86518", "#c92516", "#8a0314"],
           "dark": ["#2a75ba", "#579bc2", "#ffa659", "#fd7933", "#f14634", "#df202e"]},
+    # D: current end colours, middle classes re-spaced (hue/lightness) for red–green vision
+    "D": {"light": ["#2a6fbb", "#7f7fbe", "#a483b3", "#c24070", "#bf2256", "#a8121c"],
+          "dark": ["#3fa7d6", "#8682ba", "#965f9c", "#b8538c", "#e75652", "#ff3b30"]},
 }
 RAMP_TAG = ""
 LABEL_BELOW = {"Rzeszów", "Olsztyn"}   # labelled bottom right so they don't cover the A4 / S51-S16
