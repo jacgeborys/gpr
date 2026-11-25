@@ -77,6 +77,23 @@ regional roads. Status 2026-11-25: 3,262 of 3,305 sections placed (27,942 of 28,
 `output/cartogram_2025_dkdw_{light,dark}.png`; the national-only map is unchanged.
 Not yet: 03b stitching for regional sections, a closer look at the 'foreign' / 'scale' flags.
 
+### GPR 2010 regional roads
+
+Regional roads barely changed course since 2010 and mostly kept their km, so they are placed
+on today's roads by km instead of reading the dense regional PDF map:
+1. `01_parse_gpr2010_dw.py` — table `0116_SDR_drwoj_w_pkt_pomiarowych_w_2010_roku.pdf` →
+   `output/gpr2010_dw_sections.csv` (2,796 sections on 790 roads, 2,790 with SDR; the other 6
+   have none in the source). Read char by char: the bold voivodeship heading printed over some
+   rows is dropped by font, numbers are digit runs snapped to the right-aligned column edges,
+   and an overflowing name's digits are cut off the total by checking the class sum.
+2. `03_place_dw2010.py` — each section's km range is cut out of the 2025 regional sections of
+   the same road (`traffic_network_2025_dw.gpkg`, km ↔ distance piecewise linear) →
+   `output/traffic_network_2010_dw.gpkg`. 2,585 placed (25,576 of 26,853 km), 123 with length
+   ratio outside 0.67–1.5 (flag 'scale'); 211 unplaced (roads no longer regional, or km outside
+   the 2025 coverage) → `output/gpr2010_dw_unplaced.csv`.
+3. `06_render_cartogram.py --dw` with GPR_YEAR=2010 → `output/cartogram_2010_dkdw_*.png`.
+Next: recover the unplaced 211 (km shifts, name anchors), check the 'scale' ones.
+
 ### GPR 2010 (work in progress)
 
 Current method (`set GPR_YEAR=2010`):
