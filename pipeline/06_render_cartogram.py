@@ -364,8 +364,13 @@ def main():
         dwsec = dwsec[dwsec.sdrr_total.notna()]
         print(f"regional sections: {len(dwsec)}")
     for d in (sec, dwsec):
-        if d is not None:   # trucks = samochody ciężarowe bez + z przyczepą
+        if d is None:
+            continue
+        if {"sdrr_ciezarowe_bez", "sdrr_ciezarowe_z"} <= set(d.columns):
+            # trucks = samochody ciężarowe bez + z przyczepą
             d["trucks"] = d.sdrr_ciezarowe_bez.fillna(0) + d.sdrr_ciezarowe_z.fillna(0)
+        else:   # 2010 tables have no vehicle classes: truck maps not possible
+            d["trucks"] = np.nan
     global LANG
     if "--lang" in sys.argv:
         LANG = sys.argv[sys.argv.index("--lang") + 1]
