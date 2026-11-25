@@ -29,13 +29,14 @@ import config
 
 GREY = ((0.5, 0.5, 0.5), 2.87)
 GREEN = (0.645, 0.992, 0.629)
-MAIN_X = 1150            # page x left of this = the three insets
+MAIN_X = 1000            # page x left of this = the Warsaw and Poznań insets (the main map's
+                         # west edge, Szczecin–Chojna–Kostrzyn, reaches x ≈ 1080)
 UNASSIGNED = 40.0        # cost of leaving a section off the map (≈ a line 25 km away)
 LABEL_FAR_KM = 25       # a label this far from a section's counting point is not its label
 TOUCH_M = 600            # two map lines whose ends are this close are consecutive
 # page boxes (x0, x1, y0, y1) right of MAIN_X that are not the main map: the edge of the
 # Górnośląski inset, the legend (with an example label '8511') and the credits box
-NOT_MAIN = [(MAIN_X, 1262, 1755, 2551), (1300, 1500, 2000, 2551), (1700, 2050, 2220, 2551)]
+NOT_MAIN = [(MAIN_X, 1262, 1705, 2551), (1300, 1500, 2000, 2551), (1700, 2050, 2220, 2551)]
 CACHE = config.OUT / "pdf2010_cache.pkl"   # parsed PDF (lines, band, glyphs, affine): ~4 min to rebuild
 
 
@@ -86,7 +87,7 @@ def load_pdf():
         with open(CACHE, "rb") as f:
             return pickle.load(f)
     raw, green, size, glyph = page_lines()
-    A = fit_affine(raw)
+    A = fit_affine([a for a in raw if not off_main(a)])   # inset lines would skew the fit
     bw = band_widths(raw, green, size)
     d = dict(raw=raw, size=size, glyph=glyph, A=A, bw=bw)
     with open(CACHE, "wb") as f:
@@ -174,10 +175,29 @@ def read_map_labels(s, raw, glyph, A, max_pt=14.0):
         hits = [j for j in tr.query(q.buffer(max_pt)) if rl[j].distance(q) <= max_pt]
         if hits:
             lab.loc[k, "line"] = min(hits, key=lambda j: rl[j].distance(q))
+    # a label between two parallel lines can go to the wrong one (A4a / DK94 at Bolesławiec):
+    # when one line gets exact labels of two values, the farther label moves to the next line
+    # within reach that has no exact label
+    n_moved = 0
+    for j, g in lab[(lab.line >= 0) & lab.exact].groupby("line"):
+        if g.label.nunique() < 2:
+            continue
+        dist = {k: rl[j].distance(Point(lab.px[k], lab.py[k])) for k in g.index}
+        keep = min(dist, key=dist.get)
+        for k in g.index:
+            if lab.label[k] == lab.label[keep]:
+                continue
+            q = Point(lab.px[k], lab.py[k])
+            taken = set(lab.line[lab.exact & (lab.line >= 0)])
+            alt = [i for i in tr.query(q.buffer(max_pt * 1.5))
+                   if i != j and i not in taken and rl[i].distance(q) <= max_pt * 1.5]
+            if alt:
+                lab.loc[k, "line"] = min(alt, key=lambda i: rl[i].distance(q))
+                n_moved += 1
     xy = np.c_[lab.px, lab.py, np.ones(len(lab))] @ A.T
     lab["x"], lab["y"] = xy[:, 0], xy[:, 1]
     print(f"map labels read: {len(lab)} {lab.how.value_counts().to_dict()}; "
-          f"on a line: {(lab.line >= 0).sum()}")
+          f"on a line: {(lab.line >= 0).sum()} ({n_moved} moved off a line with another label)")
     return lab
 
 
@@ -272,7 +292,12 @@ def label_bonus(s, lab, lines, cost, exact_bonus=120.0, near_bonus=20.0, reserve
                 if xs[i] == xs[i] and np.hypot(xs[i] - r.x, ys[i] - r.y) > far_km * 1000:
                     nb_lines = set().union(*[lines_of.get(vals[pos[k]], set())
                                              for k in nbk[s.index[i]]]) if nbk[s.index[i]] else set()
-                    if not (nb_lines & (touch[r.line] | {r.line})):
+                    # a unique 5-digit value on a line of the right length is no misread: the
+                    # point is wrong (2025 chainage shifted, e.g. DK11 at Ostrów Wlkp.)
+                    sure = (len(r.label) >= 5 and len(by_val[r.label]) == 1 and
+                            abs(np.log(max(lines[r.line].length / 1000, 0.1)
+                                       / s.dlugosc_km.values[i])) <= np.log(1.5))
+                    if not sure and not (nb_lines & (touch[r.line] | {r.line})):
                         continue
                     n_nb += 1
                 out[i, r.line] -= exact_bonus
@@ -390,6 +415,100 @@ def repair(s, lines, L, lab, max_len_ratio=2.5):
                 changed = True
     print(f"repair: {n_fix} sections placed on empty lines next to their km-neighbours, "
           f"{n_move} stranded sections moved there")
+    return s
+
+
+def name_places(names, kinds):
+    """OSM places by upper-case name; a name ending in '.' (TOMASZÓW MAZ.) matches by prefix."""
+    places = gpd.read_file(config.OSM_GPKG, layer="places")
+    places = places[places.place.isin(kinds)]
+    keys = places.name.str.upper().values
+    geo = list(places.geometry)
+    out = {}
+    for n in names:
+        if n.endswith("."):
+            out[n] = [g for k, g in zip(keys, geo) if k.startswith(n[:-1])]
+        else:
+            out[n] = [g for k, g in zip(keys, geo) if k == n]
+    return out
+
+
+def name_parts(name):
+    import re
+    return [p.strip() for p in re.split(r"[-/]|OBWODNICA|PRZEJŚCIE|W\. |\d",
+                                        str(name)) if len(p.strip()) > 2]
+
+
+def leftover(s, lines, L, lab, max_ratio=1.35, place_km=8.0, far_km=25.0, again=True):
+    """Sections still off the map (no usable counting point, no placed km-neighbour: town
+    bypasses, short links). (1) Pair them with empty lines when the length fits and the line
+    carries a label within one edit of the value or passes within place_km of a place named in
+    the section's name. (2) Swap: an off-map section takes a line held by another section when
+    the line is within place_km of a town named in its name, every town/city named in the
+    holder's name is > far_km away and no label confirms the holder (a namesake-village point
+    put it there: PIASKI /OBWODNICA/ on the Tomaszów Maz. bypass)."""
+    import importlib
+    edits = importlib.import_module("08_suspects2010").edits
+    reads = lab[lab.line >= 0].groupby("line").label.agg(list)
+    parts = {i: name_parts(s.nazwa_odcinka[i]) for i in s.index}
+    allp = sorted({p for v in parts.values() for p in v})
+    anyp = name_places(allp, ["city", "town", "village"])
+    towns = name_places(allp, ["city", "town"])
+
+    def dist(i, j, src):
+        return min((lines[j].distance(g) / 1000 for p in parts[i] for g in src.get(p, [])),
+                   default=np.inf)
+
+    def ok_len(i, j):
+        return abs(np.log(max(L[j], 0.1) / s.dlugosc_km[i])) <= np.log(max_ratio)
+
+    def confirmed(i, j):
+        v = str(int(s.sdrr_total[i]))
+        return j in reads.index and any(edits(t, v) <= 1 for t in reads[j])
+
+    off = s.index[(s.line < 0) & s.sdrr_total.notna()]
+    empty = sorted(set(range(len(lines))) - set(s.line[s.line >= 0]))
+    pairs = []
+    for i in off:
+        for j in empty:
+            if not ok_len(i, j):
+                continue
+            lab_ok = confirmed(i, j)
+            d = dist(i, j, anyp)
+            if not lab_ok and d > place_km:
+                continue
+            r = abs(np.log(max(L[j], 0.1) / s.dlugosc_km[i]))
+            pairs.append((r + min(d, place_km) / place_km - 2 * lab_ok, i, j))
+    n_fix = 0
+    used_i, used_j = set(), set()
+    for c, i, j in sorted(pairs):
+        if i in used_i or j in used_j:
+            continue
+        s.loc[i, "line"] = j
+        used_i.add(i)
+        used_j.add(j)
+        n_fix += 1
+        print(f"  leftover {s.numer_odcinka[i]} {s.nazwa_odcinka[i]} → line {j} ({L[j]:.1f} km)")
+    n_swap = 0
+    holder = {j: i for i, j in zip(s.index, s.line) if j >= 0}
+    for i in s.index[(s.line < 0) & s.sdrr_total.notna()]:
+        if not any(towns.get(p) for p in parts[i]):
+            continue
+        for j, h in list(holder.items()):
+            if not ok_len(i, j) or dist(i, j, towns) > place_km or confirmed(h, j):
+                continue
+            if not any(towns.get(p) for p in parts[h]) or dist(h, j, towns) <= far_km:
+                continue
+            print(f"  swap: {s.numer_odcinka[i]} {s.nazwa_odcinka[i]} takes line {j} from "
+                  f"{s.numer_odcinka[h]} {s.nazwa_odcinka[h]} (its towns {dist(h, j, towns):.0f} km away)")
+            s.loc[i, "line"], s.loc[h, "line"] = j, -1
+            holder[j] = i
+            n_swap += 1
+            break
+    print(f"leftover: {n_fix} sections placed on empty lines by length + label / place name, "
+          f"{n_swap} swapped onto lines held by a section named after far towns")
+    if n_swap and again:   # the sections swapped out may fit an empty line (Piaski bypass)
+        return leftover(s, lines, L, lab, max_ratio, place_km, far_km, again=False)
     return s
 
 
@@ -515,6 +634,7 @@ def main():
     r = np.corrcoef(np.log(s.sdrr_total[rows]), np.log(sdr_est[cols]))[0, 1]
     print(f"assigned {len(rows)} sections; log-SDR vs band-width correlation {r:.2f}")
     s = repair(s, lines, L, lab)
+    s = leftover(s, lines, L, lab)
     s = s.sort_index()
     matched = s[s.line >= 0].copy()
     matched["geometry"] = [lines[j] for j in matched.line]

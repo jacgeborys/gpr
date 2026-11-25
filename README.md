@@ -103,10 +103,24 @@ correct value, jump/short-high flags are real short town crossings (PRZEJŚCIE).
 2026-11-25: 40205 Koziegłowy–Siewierz (DK1) was lost by the table grid (merged cells) — step 01
 now parses such rows from the page text (1,793 sections). Stranded-section moves fixed DK2
 Mińsk–Kałuszyn, A2 Buk–Komorniki, Miechów, Żyrardów–Korytów; S-road neighbours placed the Grójec
-bypass and DK8 Marki. 1,780/1,793 sections on the map, 7 lines grey. The 13 left off (~150 km,
-mostly low-traffic: DK26/31 around Chojna, DK10 Lubieszyn–Szczecin, DK6 Sławno–Słupsk, A4a,
-S11 Kórnik–Środa, DK36 Lubin–Ścinawa, bypasses of Tomaszów Maz./Prudnik/Opole, the 0.6 km
-Wrocław–Bielany stub) were not checked one by one; accepted as is.
+bypass and DK8 Marki.
+Then the last 13 off-map sections were debugged one by one:
+- the page cut for the insets was at x 1150, but the main map's west edge reaches x ≈ 1080:
+  DK10 Lubieszyn–Szczecin and DK26/31 around Chojna were not read at all. Now MAIN_X = 1000
+  (Warsaw/Poznań insets end at ≈ 996; the Górnośląski inset is a NOT_MAIN box) and the ICP fit
+  leaves the boxes out;
+- labels between two parallel lines: when a line gets exact labels of two values, the farther
+  one moves to the nearest unlabelled line (fixed A4a Godzieszów–Bolesławiec);
+- a unique 5-digit label on a line of the right length overrides a far 2025-chainage point
+  (DK11 at Ostrów Wlkp.: the chainage changed with S11);
+- `leftover()`: sections with no usable point (bypasses of Prudnik / Opole, Lubin–Ścinawa,
+  Sławno–Słupsk, Wrocław–Bielany stub) take an empty line of their length within 8 km of a
+  place named in the section name; and a section takes a line held by one whose named towns
+  are all > 25 km away (Tomaszów Maz. bypass had "Piaski bypass" — a namesake-village point;
+  Piaski then took its own empty line near Lublin).
+1,791/1,793 sections on the map, 1 line grey; 12 suspects left, all checked by eye (misreads
+at crowded junctions, real short town crossings). Off the map: S11 W. Kórnik Płd.–Środa Wlkp.
+(8.9 km, no chainage) and DK25 Nowe Skalmierzyce crossing (4.1 km) — no gap on the map.
 The earlier BDOT-based 2010 attempts (`02_build_graph.py` past_network / pdf_network, steps
 03/03b) are kept but give worse results.
 
