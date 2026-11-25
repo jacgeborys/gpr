@@ -42,29 +42,52 @@ GAP_M, GAP_W = 1000, 5.0  # holes in the road data: straight jumps up to GAP_M, 
 POWIAT_GPKG = config.DW_GPKG.parent / "skdr_powiatowe.gpkg"   # county roads (BDOT10k)
 POWIAT_W = 1.2        # county roads cost this much more (national / regional preferred) …
 RETRY_DEV_M = 250     # … and are tried only when the national + regional trace deviates more
+# caches (re-runs of 03 change which section sits on a line, not the lines: traces are reused)
+ROADS_CACHE = config.OUT / "roads_cache_2010.pkl"   # road pieces as WKB (fast to load)
+TRACE_CACHE = config.OUT / "trace_cache_2010.pkl"   # line + junction nodes → trace
+PARAMS = (CORRIDOR_M, D0_M, END_R_M, MAX_DEV_M, LEN_RATIO, GAP_M, GAP_W, POWIAT_W, RETRY_DEV_M)
+
+
+def load_roads():
+    """National + regional pieces, then county pieces; cached as WKB (the gpkgs take minutes)."""
+    import pickle
+    src = [config.SKDR_GPKG, config.DW_GPKG, POWIAT_GPKG]
+    stamp = [f.stat().st_mtime if f.exists() else 0 for f in src]
+    if ROADS_CACHE.exists():
+        with open(ROADS_CACHE, "rb") as f:
+            d = pickle.load(f)
+        if d["stamp"] == stamp:
+            return list(shapely.from_wkb(d["wkb"])), d["n_main"], d["n_nat"], d["n_dw"]
+    parts = []
+    for f in src:
+        if not f.exists():
+            parts.append([])
+            continue
+        g = gpd.read_file(f).to_crs(2180).geometry.explode(index_parts=False)
+        parts.append([x for x in g if x is not None and x.geom_type == "LineString"
+                      and x.length > 0])
+    geoms = parts[0] + parts[1] + parts[2]
+    d = dict(stamp=stamp, wkb=shapely.to_wkb(np.asarray(geoms, dtype=object)),
+             n_main=len(parts[0]) + len(parts[1]), n_nat=len(parts[0]), n_dw=len(parts[1]))
+    with open(ROADS_CACHE, "wb") as f:
+        pickle.dump(d, f)
+    return geoms, d["n_main"], d["n_nat"], d["n_dw"]
 
 
 def road_graph():
-    nat = gpd.read_file(config.SKDR_GPKG).to_crs(2180)
-    dw = gpd.read_file(config.DW_GPKG).to_crs(2180)
-    geoms = [g for gdf in (nat, dw) for g in gdf.geometry.explode(index_parts=False)
-             if g is not None and g.geom_type == "LineString" and g.length > 0]
+    geoms, n_main, n_nat, n_dw = load_roads()
     G = nx.Graph()
     key = lambda c: (round(c[0]), round(c[1]))
-    for k, g in enumerate(geoms):
+    for k, g in enumerate(geoms[:n_main]):
         a, b = key(g.coords[0]), key(g.coords[-1])
         if a != b and (not G.has_edge(a, b) or G[a][b]["len"] > g.length):
             G.add_edge(a, b, eid=k, len=g.length)
-    n_main = len(geoms)
-    # county roads: old national routes demoted below regional (old DK17 Lublin–Kurów); not in
-    # G (junction nodes stay on national / regional roads), only used by the retry trace
-    if POWIAT_GPKG.exists():
-        pw = gpd.read_file(POWIAT_GPKG).to_crs(2180)
-        geoms += [g for g in pw.geometry.explode(index_parts=False)
-                  if g is not None and g.geom_type == "LineString" and g.length > 0]
+    # county roads (after n_main): old national routes demoted below regional (old DK17
+    # Lublin–Kurów); not in G (junction nodes stay on national / regional roads), only used by
+    # the retry trace
     mult = np.ones(len(geoms))
     mult[n_main:] = POWIAT_W
-    print(f"road graph: {n_main:,} pieces (national {len(nat):,}, regional {len(dw):,}), "
+    print(f"road graph: {n_main:,} pieces (national {n_nat:,}, regional {n_dw:,}), "
           f"{G.number_of_nodes():,} nodes; county roads for retries: {len(geoms) - n_main:,}")
     return G, geoms, mult, n_main
 
@@ -172,12 +195,24 @@ def deviation(a, b, n=40):
 
 
 def retrace(lines, end_node, G, geoms, trees, mult):
+    import pickle
+    cache = {}
+    if TRACE_CACHE.exists():
+        with open(TRACE_CACHE, "rb") as f:
+            d = pickle.load(f)
+        if d.get("params") == PARAMS:
+            cache = d["traces"]
     out, how = [], []
-    n_county = 0
+    n_county = n_hit = 0
     for k, line in enumerate(lines):
         s_node, t_node = end_node[2 * k], end_node[2 * k + 1]
+        ck = (tuple(np.round(np.asarray(line.coords)[:, :2]).astype(int).ravel()), s_node, t_node)
         best, dev = None, np.inf
-        if line.length >= 300:
+        if ck in cache:
+            n_hit += 1
+            if cache[ck] is not None:
+                best = shapely.from_wkb(cache[ck])
+        elif line.length >= 300:
             new = trace(line, s_node, t_node, G, geoms, trees[0], mult)
             if accept(new, line):
                 best, dev = new, deviation(new, line)
@@ -186,6 +221,9 @@ def retrace(lines, end_node, G, geoms, trees, mult):
                 if accept(alt, line) and deviation(alt, line) < 0.7 * dev:
                     best, dev = alt, deviation(alt, line)
                     n_county += 1
+            cache[ck] = shapely.to_wkb(best) if best is not None else None
+        else:
+            cache[ck] = None
         if best is not None:
             out.append(best)
             how.append("road")
@@ -198,7 +236,10 @@ def retrace(lines, end_node, G, geoms, trees, mult):
             c[-1] = t_node
         out.append(LineString(c) if c[0] != c[-1] else line)
         how.append("pdf")
-    print(f"retraced with county roads (closer to the 2010 line): {n_county}")
+    with open(TRACE_CACHE, "wb") as f:
+        pickle.dump(dict(params=PARAMS, traces=cache), f)
+    print(f"traces from cache: {n_hit} of {len(lines)}; "
+          f"new ones retraced with county roads (closer to the 2010 line): {n_county}")
     return out, np.array(how)
 
 

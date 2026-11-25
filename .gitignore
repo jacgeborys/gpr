@@ -16,3 +16,5 @@ legacy/gpr2025.gpkg
 output/pdf2010_cache.pkl
 output/debug2010/
 data/pdf2010_network.gpkg
+output/roads_cache_2010.pkl
+output/trace_cache_2010.pkl
