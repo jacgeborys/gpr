@@ -98,7 +98,10 @@ Current method (`set GPR_YEAR=2010`):
    regional now (a parallel A/S road took the traffic) the regional road is closer and wins.
    Holes in the road data are bridged by straight jumps ≤ 1 km (5× cost). Kept only within
    2.5 km of the map line and 0.7–1.8× its length; otherwise the PDF shape stays (ends snapped
-   to the junction nodes), column `shape` = road / pdf. 96% of the length is traced (~7 min).
+   to the junction nodes), column `shape` = road / pdf. Where the national + regional trace
+   is > 250 m from the map line on average, county roads (BDOT `skdr_powiatowe.gpkg`, 1.2×
+   cost) are tried too and win if ≥ 30% closer: old routes demoted below regional (old DK17
+   NW of Lublin, next to today's S17). 97% of the length is traced (~27 min).
    Writes `sections` / `skdr_unmeasured` with real shapes, keeps the map shapes as
    `sections_pdf` / `unmeasured_pdf` (step 08 uses those) and adds `regional_roads`.
    Re-running step 03 overwrites the gpkg: run 03c after it.
@@ -121,8 +124,12 @@ Then the last 13 off-map sections were debugged one by one:
   DK10 Lubieszyn–Szczecin and DK26/31 around Chojna were not read at all. Now MAIN_X = 1000
   (Warsaw/Poznań insets end at ≈ 996; the Górnośląski inset is a NOT_MAIN box) and the ICP fit
   leaves the boxes out;
-- labels between two parallel lines: when a line gets exact labels of two values, the farther
-  one moves to the nearest unlabelled line (fixed A4a Godzieszów–Bolesławiec);
+- labels between two parallel lines: when a line gets exact labels of two values, the one whose
+  section length fits the line stays, the other moves to the nearest unlabelled line (fixed
+  A4a Godzieszów–Bolesławiec and S7 at Białobrzegi, where the 1.2 km DK48 crossing's 5934 had
+  taken the 10 km S7 line);
+- a leftover section may also take an empty line that continues its road number and fits its
+  length within 1.2× (S11 W. Kórnik Płd.–Środa Wlkp. between two DK11 lines);
 - a unique 5-digit label on a line of the right length overrides a far 2025-chainage point
   (DK11 at Ostrów Wlkp.: the chainage changed with S11);
 - `leftover()`: sections with no usable point (bypasses of Prudnik / Opole, Lubin–Ścinawa,
@@ -130,9 +137,9 @@ Then the last 13 off-map sections were debugged one by one:
   place named in the section name; and a section takes a line held by one whose named towns
   are all > 25 km away (Tomaszów Maz. bypass had "Piaski bypass" — a namesake-village point;
   Piaski then took its own empty line near Lublin).
-1,791/1,793 sections on the map, 1 line grey; 12 suspects left, all checked by eye (misreads
-at crowded junctions, real short town crossings). Off the map: S11 W. Kórnik Płd.–Środa Wlkp.
-(8.9 km, no chainage) and DK25 Nowe Skalmierzyce crossing (4.1 km) — no gap on the map.
+1,792/1,793 sections on the map, no grey line; 12 suspects left, all checked by eye (misreads
+at crowded junctions, real short town crossings). Off the map: DK25 Nowe Skalmierzyce crossing
+(4.1 km) — no gap on the map.
 2026-11-25: real road shapes + regional roads (step 03c): 1,663 of 1,792 lines traced (96% of
 length), checked against the 2010 lines where an A/S road runs parallel (DK91 Gdańsk–Tczew,
 DK8 Oleśnica, DK7 Elbląg, DK1 Piotrków–Częstochowa, DK2 Września, Katowice): the traces stay on

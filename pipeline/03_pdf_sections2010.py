@@ -176,14 +176,19 @@ def read_map_labels(s, raw, glyph, A, max_pt=14.0):
         if hits:
             lab.loc[k, "line"] = min(hits, key=lambda j: rl[j].distance(q))
     # a label between two parallel lines can go to the wrong one (A4a / DK94 at Bolesławiec):
-    # when one line gets exact labels of two values, the farther label moves to the next line
-    # within reach that has no exact label
+    # when one line gets exact labels of two values, the label whose section length fits the
+    # line best stays (S7 at Białobrzegi: 25389 on 10 km, not the 1.2 km crossing's 5934 printed
+    # next to it), the other moves to the next line within reach that has no exact label
     n_moved = 0
+    km_of = s.dropna(subset=["sdrr_total"]).groupby(s.sdrr_total.dropna().astype(int).astype(str)) \
+        .dlugosc_km.apply(list).to_dict()
     for j, g in lab[(lab.line >= 0) & lab.exact].groupby("line"):
         if g.label.nunique() < 2:
             continue
-        dist = {k: rl[j].distance(Point(lab.px[k], lab.py[k])) for k in g.index}
-        keep = min(dist, key=dist.get)
+        Lj = max(rl[j].length * abs(A[0, 0]) / 1000, 0.1)   # page pt → km (approx. scale)
+        fit = {k: min(abs(np.log(Lj / max(km, 0.1))) for km in km_of.get(lab.label[k], [Lj]))
+               + rl[j].distance(Point(lab.px[k], lab.py[k])) / 100 for k in g.index}
+        keep = min(fit, key=fit.get)
         for k in g.index:
             if lab.label[k] == lab.label[keep]:
                 continue
@@ -466,6 +471,13 @@ def leftover(s, lines, L, lab, max_ratio=1.35, place_km=8.0, far_km=25.0, again=
         v = str(int(s.sdrr_total[i]))
         return j in reads.index and any(edits(t, v) <= 1 for t in reads[j])
 
+    import re
+    num = lambda r: (re.findall(r"\d+", str(r)) or [""])[0]
+    touch = touching(lines)
+    road_on = {}
+    for i_, j_ in zip(s.index, s.line):
+        if j_ >= 0:
+            road_on[j_] = num(s.road[i_])
     off = s.index[(s.line < 0) & s.sdrr_total.notna()]
     empty = sorted(set(range(len(lines))) - set(s.line[s.line >= 0]))
     pairs = []
@@ -475,6 +487,12 @@ def leftover(s, lines, L, lab, max_ratio=1.35, place_km=8.0, far_km=25.0, again=
                 continue
             lab_ok = confirmed(i, j)
             d = dist(i, j, anyp)
+            # or: the line continues the same road number (S11 W. Kórnik Płd.–Środa between
+            # two DK11 lines; its name is an interchange and an abbreviation) and fits closely
+            same_road = (abs(np.log(max(L[j], 0.1) / s.dlugosc_km[i])) <= np.log(1.2) and
+                         any(road_on.get(t) == num(s.road[i]) for t in touch[j]))
+            if same_road:
+                d = min(d, place_km / 2)
             if not lab_ok and d > place_km:
                 continue
             r = abs(np.log(max(L[j], 0.1) / s.dlugosc_km[i]))

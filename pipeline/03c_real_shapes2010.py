@@ -12,7 +12,9 @@ plausible (LEN_RATIO); otherwise the line keeps its PDF shape (column `shape` = 
 
 Reads : output/traffic_network_2010.gpkg layers 'sections', 'skdr_unmeasured' (from step 03;
         if 'sections_pdf' exists — a previous run — that is used as the source)
-        config.SKDR_GPKG (national roads), config.DW_GPKG (regional roads)
+        config.SKDR_GPKG (national roads), config.DW_GPKG (regional roads), skdr_powiatowe.gpkg
+        next to it (county roads: tried where the national + regional trace deviates > 250 m
+        from the 2010 line — old routes demoted below regional, e.g. old DK17 Lublin–Kurów)
 Writes: output/traffic_network_2010.gpkg layers 'sections', 'skdr_unmeasured' (real shapes),
         'sections_pdf', 'unmeasured_pdf' (the map shapes, for QA), 'regional_roads'
 """
@@ -37,6 +39,9 @@ END_W = 4.0           # cost per m of getting from the map line's end to the pat
 MAX_DEV_M = 2500      # accept: every point of the trace within this of the map line …
 LEN_RATIO = (0.7, 1.8)  # … and trace length / map-line length within this
 GAP_M, GAP_W = 1000, 5.0  # holes in the road data: straight jumps up to GAP_M, cost × GAP_W
+POWIAT_GPKG = config.DW_GPKG.parent / "skdr_powiatowe.gpkg"   # county roads (BDOT10k)
+POWIAT_W = 1.2        # county roads cost this much more (national / regional preferred) …
+RETRY_DEV_M = 250     # … and are tried only when the national + regional trace deviates more
 
 
 def road_graph():
@@ -50,9 +55,18 @@ def road_graph():
         a, b = key(g.coords[0]), key(g.coords[-1])
         if a != b and (not G.has_edge(a, b) or G[a][b]["len"] > g.length):
             G.add_edge(a, b, eid=k, len=g.length)
-    print(f"road graph: {len(geoms):,} pieces (national {len(nat):,}, regional {len(dw):,}), "
-          f"{G.number_of_nodes():,} nodes")
-    return G, geoms
+    n_main = len(geoms)
+    # county roads: old national routes demoted below regional (old DK17 Lublin–Kurów); not in
+    # G (junction nodes stay on national / regional roads), only used by the retry trace
+    if POWIAT_GPKG.exists():
+        pw = gpd.read_file(POWIAT_GPKG).to_crs(2180)
+        geoms += [g for g in pw.geometry.explode(index_parts=False)
+                  if g is not None and g.geom_type == "LineString" and g.length > 0]
+    mult = np.ones(len(geoms))
+    mult[n_main:] = POWIAT_W
+    print(f"road graph: {n_main:,} pieces (national {len(nat):,}, regional {len(dw):,}), "
+          f"{G.number_of_nodes():,} nodes; county roads for retries: {len(geoms) - n_main:,}")
+    return G, geoms, mult, n_main
 
 
 def key(c):
@@ -94,7 +108,7 @@ def junctions(lines, G, touch_m=600):
     return end_node
 
 
-def trace(line, s_node, t_node, G, geoms, tree):
+def trace(line, s_node, t_node, G, geoms, tree, mult):
     """Cheapest road path between the two junction nodes, kept near the map line."""
     if s_node is None or t_node is None or s_node == t_node:
         return None
@@ -106,7 +120,7 @@ def trace(line, s_node, t_node, G, geoms, tree):
     # mean distance of the piece from the map line (ends + middle)
     d = np.mean([shapely.distance(line, shapely.line_interpolate_point(ga, f, normalized=True))
                  for f in (0, 0.5, 1)], axis=0)
-    w = lens * (1 + (d / D0_M) ** 2)
+    w = lens * (1 + (d / D0_M) ** 2) * mult[cand]
     H = nx.Graph()
     for k, wk in zip(cand, w):
         a, b = key(geoms[k].coords[0]), key(geoms[k].coords[-1])
@@ -149,13 +163,31 @@ def accept(new, line):
     return new.hausdorff_distance(line) <= MAX_DEV_M
 
 
-def retrace(lines, end_node, G, geoms, tree):
+def deviation(a, b, n=40):
+    """Mean distance between two lines (sampled both ways)."""
+    f = np.linspace(0, 1, n)
+    pa = shapely.line_interpolate_point(a, f, normalized=True)
+    pb = shapely.line_interpolate_point(b, f, normalized=True)
+    return (shapely.distance(pa, b).mean() + shapely.distance(pb, a).mean()) / 2
+
+
+def retrace(lines, end_node, G, geoms, trees, mult):
     out, how = [], []
+    n_county = 0
     for k, line in enumerate(lines):
         s_node, t_node = end_node[2 * k], end_node[2 * k + 1]
-        new = trace(line, s_node, t_node, G, geoms, tree) if line.length >= 300 else None
-        if accept(new, line):
-            out.append(new)
+        best, dev = None, np.inf
+        if line.length >= 300:
+            new = trace(line, s_node, t_node, G, geoms, trees[0], mult)
+            if accept(new, line):
+                best, dev = new, deviation(new, line)
+            if dev > RETRY_DEV_M and trees[1] is not None:
+                alt = trace(line, s_node, t_node, G, geoms, trees[1], mult)
+                if accept(alt, line) and deviation(alt, line) < 0.7 * dev:
+                    best, dev = alt, deviation(alt, line)
+                    n_county += 1
+        if best is not None:
+            out.append(best)
             how.append("road")
             continue
         # kept as on the map, but its ends snapped to the junction nodes (no gaps)
@@ -166,6 +198,7 @@ def retrace(lines, end_node, G, geoms, tree):
             c[-1] = t_node
         out.append(LineString(c) if c[0] != c[-1] else line)
         how.append("pdf")
+    print(f"retraced with county roads (closer to the 2010 line): {n_county}")
     return out, np.array(how)
 
 
@@ -184,11 +217,11 @@ def main():
     unm = gpd.read_file(config.NETWORK_GPKG, layer=src_unm)
     sec.to_file(config.NETWORK_GPKG, layer="sections_pdf", driver="GPKG")
     unm.to_file(config.NETWORK_GPKG, layer="unmeasured_pdf", driver="GPKG")
-    G, geoms = road_graph()
-    tree = STRtree(geoms)
+    G, geoms, mult, n_main = road_graph()
+    trees = (STRtree(geoms[:n_main]), STRtree(geoms) if len(geoms) > n_main else None)
     lines = [as_line(g) for g in pd.concat([sec.geometry, unm.geometry])]
     end_node = junctions(lines, G)
-    out, how = retrace(lines, end_node, G, geoms, tree)
+    out, how = retrace(lines, end_node, G, geoms, trees, mult)
     n = len(sec)
     new = sec.copy()
     new["geometry"], new["shape"] = out[:n], how[:n]
