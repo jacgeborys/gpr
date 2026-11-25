@@ -45,9 +45,10 @@ RETRY_DEV_M = 250     # … and are tried only when the national + regional trac
 # caches (re-runs of 03 change which section sits on a line, not the lines: traces are reused)
 ROADS_CACHE = config.OUT / "roads_cache_2010.pkl"   # road pieces as WKB (fast to load)
 TRACE_CACHE = config.OUT / "trace_cache_2010.pkl"   # line + junction nodes → trace
-OVERLAP_MAX, OVERLAP_W = 0.25, 4.0   # a trace sharing more of its length with others is
+OVERLAP_MAX, OVERLAP_W = 0.2, 4.0   # a trace sharing more of its length with others is
                                     # retraced with the shared pieces costing OVERLAP_W ×
-PARAMS = (OVERLAP_MAX, OVERLAP_W, CORRIDOR_M, D0_M, END_R_M, MAX_DEV_M, LEN_RATIO, GAP_M, GAP_W, POWIAT_W, RETRY_DEV_M)
+OVL_D0 = 3 * D0_M   # looser corridor for overlap retraces (see retrace)
+PARAMS = (CORRIDOR_M, D0_M, END_R_M, MAX_DEV_M, LEN_RATIO, GAP_M, GAP_W, POWIAT_W, RETRY_DEV_M)
 
 
 def load_roads():
@@ -133,7 +134,7 @@ def junctions(lines, G, touch_m=600):
     return end_node
 
 
-def trace(line, s_node, t_node, G, geoms, tree, mult, avoid=None):
+def trace(line, s_node, t_node, G, geoms, tree, mult, avoid=None, d0=D0_M):
     """Cheapest road path between the two junction nodes, kept near the map line."""
     if s_node is None or t_node is None or s_node == t_node:
         return None
@@ -145,7 +146,7 @@ def trace(line, s_node, t_node, G, geoms, tree, mult, avoid=None):
     # mean distance of the piece from the map line (ends + middle)
     d = np.mean([shapely.distance(line, shapely.line_interpolate_point(ga, f, normalized=True))
                  for f in (0, 0.5, 1)], axis=0)
-    w = lens * (1 + (d / D0_M) ** 2) * mult[cand]
+    w = lens * (1 + (d / d0) ** 2) * mult[cand]
     if avoid is not None:   # pieces already used by another section's trace cost more
         mid = shapely.line_interpolate_point(ga, 0.5, normalized=True)
         w = np.where(shapely.distance(mid, avoid) < 15, w * OVERLAP_W, w)
@@ -253,15 +254,17 @@ def retrace(lines, end_node, G, geoms, trees, mult):
         av = shapely.union_all([out[j] for j in others]).buffer(15)
         if out[i].intersection(av).length / out[i].length <= OVERLAP_MAX:
             continue
-        ck = ("ovl", tuple(np.round(np.asarray(lines[i].coords)[:, :2]).astype(int).ravel()),
+        ck = ("ovl", OVERLAP_MAX, OVERLAP_W, OVL_D0, tuple(np.round(np.asarray(lines[i].coords)[:, :2]).astype(int).ravel()),
               end_node[2 * i], end_node[2 * i + 1])
         if ck not in cache:
             alt = None
             for tr in trees:
                 if tr is None:
                     continue
+                # the map line is schematic: the road it stands for may stray up to ~2 km from
+                # it (S17 Garwolin bypass), so the corridor penalty is looser here
                 a2 = trace(lines[i], end_node[2 * i], end_node[2 * i + 1], G, geoms, tr, mult,
-                           avoid=av)
+                           avoid=av, d0=OVL_D0)
                 if accept(a2, lines[i]) and a2.intersection(av).length / a2.length <= OVERLAP_MAX:
                     alt = a2
                     break
